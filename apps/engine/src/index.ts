@@ -10,48 +10,63 @@ import { scrapeRouter } from "./routes/scrape";
 import { logger } from "./lib/logger";
 import { env } from "./lib/env";
 import { pool } from "./infra/db/client";
+import { runMigrations } from "./infra/db/migrate";
 
-const app = express();
+async function main() {
+  // ── Auto-migrate on every boot (idempotent CREATE IF NOT EXISTS) ──
+  logger.info("Running database migrations...");
+  await runMigrations(env.DATABASE_URL);
+  logger.info("Migrations complete.");
 
-app.use(helmet({ crossOriginResourcePolicy: false }));
-app.use(
-  cors({
-    origin: env.DASHBOARD_URL ? [env.DASHBOARD_URL] : "*",
-    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type"],
-  }),
-);
-app.use(compression() as express.RequestHandler);
-app.use(express.json());
+  const app = express();
 
-app.get("/health", (_req, res) => res.json({ ok: true, service: "engine" }));
+  app.use(helmet({ crossOriginResourcePolicy: false }));
+  app.use(
+    cors({
+      origin: env.DASHBOARD_URL ? [env.DASHBOARD_URL] : "*",
+      methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+      allowedHeaders: ["Content-Type"],
+    }),
+  );
+  app.use(compression() as express.RequestHandler);
+  app.use(express.json());
 
-app.use("/api/leads", leadsRouter);
-app.use("/api/keyword-sets", keywordSetsRouter);
-app.use("/api/cities", citiesRouter);
-app.use("/api/runs", runsRouter);
-app.use("/api/scrape", scrapeRouter);
+  app.get("/health", (_req, res) => res.json({ ok: true, service: "engine" }));
 
-const server = app.listen(env.PORT, () => {
-  logger.info({ port: env.PORT }, "LeadScout engine running");
-});
+  app.use("/api/leads", leadsRouter);
+  app.use("/api/keyword-sets", keywordSetsRouter);
+  app.use("/api/cities", citiesRouter);
+  app.use("/api/runs", runsRouter);
+  app.use("/api/scrape", scrapeRouter);
 
-function shutdown(signal: string) {
-  logger.info({ signal }, "Shutdown signal received — closing gracefully");
-  server.close(() => {
-    logger.info("HTTP server closed");
-    pool.end().then(() => {
-      logger.info("DB pool closed");
-      process.exit(0);
-    }).catch(() => process.exit(0));
+  const server = app.listen(env.PORT, () => {
+    logger.info({ port: env.PORT }, "LeadScout engine running");
   });
 
-  // Force-exit if graceful close takes > 10s
-  setTimeout(() => {
-    logger.warn("Graceful shutdown timed out — forcing exit");
-    process.exit(0);
-  }, 10_000).unref();
+  function shutdown(signal: string) {
+    logger.info({ signal }, "Shutdown signal received — closing gracefully");
+    server.close(() => {
+      logger.info("HTTP server closed");
+      pool
+        .end()
+        .then(() => {
+          logger.info("DB pool closed");
+          process.exit(0);
+        })
+        .catch(() => process.exit(0));
+    });
+
+    setTimeout(() => {
+      logger.warn("Graceful shutdown timed out — forcing exit");
+      process.exit(0);
+    }, 10_000).unref();
+  }
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
+main().catch((err) => {
+  logger.error({ err }, "Fatal startup error");
+  process.exit(1);
+});

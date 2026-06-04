@@ -3,20 +3,16 @@ import path from "path";
 import { Pool } from "pg";
 import { DEFAULT_KEYWORD_SETS, DEFAULT_CITIES } from "../../domain/segment";
 
-async function migrate() {
-  const connectionString =
-    process.env.DATABASE_URL ?? "postgresql://leadscout:leadscout@localhost:5432/leadscout";
-
+export async function runMigrations(connectionString: string): Promise<void> {
   const pool = new Pool({ connectionString });
   const client = await pool.connect();
 
   try {
-    console.log("Running migrations...");
-
+    console.log("[migrate] Running schema...");
     const schemaPath = path.join(__dirname, "schema.sql");
     const schemaSql = fs.readFileSync(schemaPath, "utf-8");
     await client.query(schemaSql);
-    console.log("Schema applied.");
+    console.log("[migrate] Schema applied.");
 
     const kwCount = await client.query("SELECT COUNT(*) FROM keyword_sets");
     if (parseInt(kwCount.rows[0].count) === 0) {
@@ -28,7 +24,7 @@ async function migrate() {
           [kw.segment, kw.label, JSON.stringify(kw.keywords)],
         );
       }
-      console.log(`Seeded ${DEFAULT_KEYWORD_SETS.length} keyword sets.`);
+      console.log(`[migrate] Seeded ${DEFAULT_KEYWORD_SETS.length} keyword sets.`);
     }
 
     const cityCount = await client.query("SELECT COUNT(*) FROM target_cities");
@@ -41,17 +37,23 @@ async function migrate() {
           [city.name, city.query],
         );
       }
-      console.log(`Seeded ${DEFAULT_CITIES.length} cities.`);
+      console.log(`[migrate] Seeded ${DEFAULT_CITIES.length} cities.`);
     }
 
-    console.log("Migration complete.");
+    console.log("[migrate] Complete.");
   } finally {
     client.release();
     await pool.end();
   }
 }
 
-migrate().catch((err) => {
-  console.error("Migration failed:", err);
-  process.exit(1);
-});
+// Allow running as standalone script: tsx src/infra/db/migrate.ts
+if (require.main === module) {
+  const connectionString =
+    process.env.DATABASE_URL ?? "postgresql://leadscout:leadscout@localhost:5432/leadscout";
+
+  runMigrations(connectionString).catch((err) => {
+    console.error("[migrate] Failed:", err);
+    process.exit(1);
+  });
+}

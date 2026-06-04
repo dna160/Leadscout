@@ -27,13 +27,13 @@ export type ScrapeError = {
   runId?: string;
 };
 
+// Kept for unit tests
 export function buildQueryPlan(
   keywordSets: Array<{ segment: Segment; keywords: string[]; label: string }>,
   cities: Array<{ name: string; query: string }>,
 ): Array<{ query: string; segment: Segment; keyword: string; city: string }> {
   const seen = new Set<string>();
   const plan: Array<{ query: string; segment: Segment; keyword: string; city: string }> = [];
-
   for (const kwSet of keywordSets) {
     for (const keyword of kwSet.keywords) {
       for (const city of cities) {
@@ -45,7 +45,6 @@ export function buildQueryPlan(
       }
     }
   }
-
   return plan;
 }
 
@@ -74,49 +73,55 @@ function segmentForKeyword(
 }
 
 function matchedKeyword(place: ApifyPlace, keywords: string[]): string {
-  const haystack = `${place.title} ${place.categoryName ?? ""}`.toLowerCase();
+  const haystack = `${place.title ?? ""} ${place.categoryName ?? ""}`.toLowerCase();
   return keywords.find((kw) => haystack.includes(kw.toLowerCase())) ?? keywords[0] ?? "";
 }
 
+// Raw item from Apify may use different field names — normalise defensively
 function normalisePlaceToLead(
-  place: ApifyPlace,
+  raw: Record<string, unknown>,
   segment: Segment,
   keyword: string,
   city: string,
   runId: string,
-): Omit<Lead, "id" | "created_at"> {
-  const placeKey =
-    place.placeId ??
-    crypto
-      .createHash("sha1")
-      .update(`${place.title}::${city}`)
-      .digest("hex")
-      .slice(0, 20);
+): Omit<Lead, "id" | "created_at"> | null {
+  // Accept both "title" and "name" (actor may return either)
+  const title = (raw.title ?? raw.name ?? "") as string;
+  if (!title) return null; // skip items with no name
 
+  const placeId = (raw.placeId ?? raw.place_id ?? null) as string | null;
+  const placeKey =
+    placeId ??
+    crypto.createHash("sha1").update(`${title}::${city}`).digest("hex").slice(0, 20);
+
+  // Phone: prefer phoneUnformatted, fall back to phone
+  const rawPhone = (raw.phoneUnformatted ?? raw.phone ?? null) as string | null;
+
+  // Instagram: may live at raw.instagram, raw.socialMedia.instagram, or raw.instagramUrl
+  const socialMedia = (raw.socialMedia ?? {}) as Record<string, string>;
   const instagram =
-    place.instagram ??
-    place.socialMedia?.instagram
-      ?.replace(/^https?:\/\/(www\.)?instagram\.com\//, "")
-      .replace(/\/$/, "") ??
+    (raw.instagram as string | null) ??
+    socialMedia.instagram?.replace(/^https?:\/\/(www\.)?instagram\.com\//, "").replace(/\/$/, "") ??
+    (raw.instagramUrl as string | null)?.replace(/^https?:\/\/(www\.)?instagram\.com\//, "").replace(/\/$/, "") ??
     null;
 
   return {
     place_key: placeKey,
-    place_id: place.placeId ?? null,
-    name: place.title,
-    category: place.categoryName ?? null,
+    place_id: placeId,
+    name: title,
+    category: (raw.categoryName ?? raw.category ?? null) as string | null,
     segment,
     matched_keyword: keyword,
     city,
-    address: place.address ?? null,
-    phone: normalisePhone(place.phoneUnformatted ?? place.phone),
-    whatsapp: toWhatsApp(place.phoneUnformatted ?? place.phone),
-    website: place.website ?? null,
-    email: place.email ?? null,
+    address: (raw.address ?? null) as string | null,
+    phone: normalisePhone(rawPhone),
+    whatsapp: toWhatsApp(rawPhone),
+    website: (raw.website ?? null) as string | null,
+    email: (raw.email ?? null) as string | null,
     instagram,
-    maps_url: place.url ?? null,
-    rating: place.totalScore ?? null,
-    reviews: place.reviewsCount ?? null,
+    maps_url: (raw.url ?? null) as string | null,
+    rating: raw.totalScore != null ? Number(raw.totalScore) : null,
+    reviews: raw.reviewsCount != null ? Number(raw.reviewsCount) : null,
     source_run_id: runId,
   };
 }
@@ -152,6 +157,8 @@ export async function runScrape(
 
   let totalPlaces = 0;
   let totalNewLeads = 0;
+  let totalSkipped = 0;
+  let totalErrors = 0;
 
   try {
     for (const cityQuery of cityQueries) {
@@ -168,16 +175,36 @@ export async function runScrape(
         continue;
       }
 
-      const places = apifyResult.value;
-      totalPlaces += places.length;
+      const rawItems = apifyResult.value as unknown as Record<string, unknown>[];
+      totalPlaces += rawItems.length;
 
-      for (const place of places) {
-        const kw = matchedKeyword(place, allKeywords);
-        const segment = segmentForKeyword(kw, kwSets);
-        const leadData = normalisePlaceToLead(place, segment, kw, cityQuery.cityName, run.id);
+      // Log a sample of the first raw item so field names are visible in Railway logs
+      if (rawItems.length > 0) {
+        logger.info(
+          { city: cityQuery.cityName, count: rawItems.length, sampleKeys: Object.keys(rawItems[0]) },
+          "Apify items received — sample field names",
+        );
+      }
+
+      for (const raw of rawItems) {
+        const leadData = normalisePlaceToLead(raw, segmentForKeyword(matchedKeyword(raw as unknown as ApifyPlace, allKeywords), kwSets), matchedKeyword(raw as unknown as ApifyPlace, allKeywords), cityQuery.cityName, run.id);
+
+        if (!leadData) {
+          totalSkipped++;
+          logger.warn({ raw: JSON.stringify(raw).slice(0, 200) }, "Skipped item — no title/name");
+          continue;
+        }
 
         const upsertResult = await upsertLead(leadData);
-        if (upsertResult.ok) totalNewLeads++;
+        if (upsertResult.ok) {
+          totalNewLeads++;
+        } else {
+          totalErrors++;
+          logger.error(
+            { error: upsertResult.error, leadName: leadData.name, city: leadData.city },
+            "Failed to upsert lead",
+          );
+        }
       }
     }
 
@@ -189,7 +216,7 @@ export async function runScrape(
     });
 
     logger.info(
-      { runId: run.id, placesFound: totalPlaces, newLeads: totalNewLeads },
+      { runId: run.id, placesFound: totalPlaces, newLeads: totalNewLeads, skipped: totalSkipped, errors: totalErrors },
       "Scrape run completed",
     );
 
@@ -201,6 +228,7 @@ export async function runScrape(
     });
   } catch (e) {
     const error = e as Error;
+    logger.error({ runId: run.id, error: error.message, stack: error.stack }, "Scrape run threw unexpectedly");
     await updateRun(run.id, {
       status: "failed",
       error: error.message,
