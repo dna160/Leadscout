@@ -17,7 +17,7 @@ scrapeRouter.post("/", async (req, res) => {
     });
   }
 
-  const result = await runScrape(parsed.data);
+  const result = await runScrape({ maxPlacesPerSearch: 5, ...parsed.data });
   if (!result.ok) {
     const status = result.error.code === "NO_KEYWORDS" || result.error.code === "NO_CITIES" ? 422 : 500;
     return void res.status(status).json({ error: result.error.message, code: result.error.code });

@@ -77,10 +77,10 @@ export async function runApifyScrapeForCity(
       locationQuery: query.locationQuery,
       maxCrawledPlacesPerSearch: maxPlacesPerSearch,
       language: "id",
-      scrapeContacts: true,
+      scrapeContacts: false,       // +$0.002/place — phone is in base data already
       skipClosedPlaces: true,
-      scrapeSocialMediaProfiles: {
-        instagrams: true,
+      scrapeSocialMediaProfiles: {  // +$0.002/place — skipping saves ~50% total cost
+        instagrams: false,
         facebooks: false,
         youtubes: false,
         tiktoks: false,

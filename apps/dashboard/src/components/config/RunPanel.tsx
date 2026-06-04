@@ -47,7 +47,7 @@ export function RunPanel({ runs: initialRuns }: RunPanelProps) {
   const [loading, setLoading] = useState(false)
   const [runError, setRunError] = useState<string | null>(null)
   const [pollWarning, setPollWarning] = useState<string | null>(null)
-  const [maxPlaces, setMaxPlaces] = useState(20)
+  const [maxPlaces, setMaxPlaces] = useState(5)
   const [isMockMode, setIsMockMode] = useState(true)
 
   async function pollRuns(runId: string): Promise<void> {
