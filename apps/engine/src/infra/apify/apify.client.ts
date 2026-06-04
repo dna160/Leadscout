@@ -43,8 +43,10 @@ function loadFixtures(): ApifyPlace[] {
 export async function runApifyScrapeForCity(
   query: CityQuery,
   maxPlacesPerSearch = 20,
+  useMock?: boolean,
 ): Promise<Result<ApifyPlace[], ApifyError>> {
-  if (env.APIFY_MOCK) {
+  const shouldMock = useMock ?? env.APIFY_MOCK;
+  if (shouldMock) {
     logger.info({ city: query.cityName, keywords: query.keywords, mode: "mock" }, "Apify mock run");
     await new Promise((r) => setTimeout(r, 300));
     const sample = loadFixtures();

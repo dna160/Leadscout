@@ -12,6 +12,7 @@ import type { Lead, Segment } from "../domain/lead";
 
 export interface ScrapeOptions {
   maxPlacesPerSearch?: number;
+  mode?: "mock" | "live";
 }
 
 export interface ScrapeRunResult {
@@ -144,8 +145,11 @@ export async function runScrape(
   const cityQueries = buildCityQueries(kwSets, cities);
   const allKeywords = kwSets.flatMap((ks) => ks.keywords);
 
+  // Request body `mode` takes precedence; fall back to env var default
+  const useMock = options.mode === "mock" || (options.mode === undefined && env.APIFY_MOCK);
+
   const runResult = await createRun({
-    mode: env.APIFY_MOCK ? "mock" : "live",
+    mode: useMock ? "mock" : "live",
     queries: cityQueries.map((q) => q.locationQuery),
     cities: cities.map((c) => c.name),
   });
@@ -165,6 +169,7 @@ export async function runScrape(
       const apifyResult = await runApifyScrapeForCity(
         cityQuery,
         options.maxPlacesPerSearch ?? 20,
+        useMock,
       );
 
       if (!apifyResult.ok) {
@@ -197,7 +202,7 @@ export async function runScrape(
 
         const upsertResult = await upsertLead(leadData);
         if (upsertResult.ok) {
-          totalNewLeads++;
+          if (upsertResult.value.inserted) totalNewLeads++;
         } else {
           totalErrors++;
           logger.error(

@@ -6,6 +6,7 @@ export const scrapeRouter = Router();
 
 const scrapeBodySchema = z.object({
   maxPlacesPerSearch: z.number().int().min(1).max(200).optional(),
+  mode: z.enum(["mock", "live"]).optional(),
 });
 
 scrapeRouter.post("/", async (req, res) => {

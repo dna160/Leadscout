@@ -13,21 +13,25 @@ export default function LeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([])
   const [stats, setStats] = useState<LeadStats>(DEFAULT_STATS)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [filters, setFilters] = useState<LeadFilters>({})
 
-  useEffect(() => {
-    async function fetchLeads() {
-      setLoading(true)
-      try {
-        const data = await apiGet<{ leads: Lead[]; stats: LeadStats }>("/api/leads")
-        setLeads(data.leads)
-        setStats(data.stats)
-      } catch (err) {
-        console.error(err)
-      } finally {
-        setLoading(false)
-      }
+  async function fetchLeads() {
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await apiGet<{ leads: Lead[]; stats: LeadStats }>("/api/leads")
+      setLeads(data.leads)
+      setStats(data.stats)
+    } catch (err) {
+      console.error(err)
+      setError(err instanceof Error ? err.message : "Failed to load leads")
+    } finally {
+      setLoading(false)
     }
+  }
+
+  useEffect(() => {
     void fetchLeads()
   }, [])
 
@@ -54,7 +58,22 @@ export default function LeadsPage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">Leads</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">Leads</h1>
+        <button
+          onClick={() => void fetchLeads()}
+          disabled={loading}
+          className="text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50 font-medium"
+        >
+          {loading ? "Loading…" : "Refresh"}
+        </button>
+      </div>
+
+      {error && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <strong>Error loading leads:</strong> {error}
+        </div>
+      )}
 
       <StatCards stats={stats} />
 

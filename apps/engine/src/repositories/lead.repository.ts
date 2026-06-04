@@ -6,9 +6,9 @@ export type DbError = { code: string; message: string };
 
 export async function upsertLead(
   lead: Omit<Lead, "id" | "created_at">,
-): Promise<Result<Lead, DbError>> {
+): Promise<Result<{ lead: Lead; inserted: boolean }, DbError>> {
   try {
-    const result = await pool.query<LeadRow>(
+    const result = await pool.query<LeadRow & { inserted: boolean }>(
       `INSERT INTO leads (
         place_key, place_id, name, category, segment, matched_keyword, city,
         address, phone, whatsapp, website, email, instagram, maps_url,
@@ -25,7 +25,7 @@ export async function upsertLead(
         maps_url = EXCLUDED.maps_url,
         rating = EXCLUDED.rating,
         reviews = EXCLUDED.reviews
-      RETURNING *`,
+      RETURNING *, (xmax::text::bigint = 0) AS inserted`,
       [
         lead.place_key,
         lead.place_id,
@@ -46,7 +46,7 @@ export async function upsertLead(
         lead.source_run_id,
       ],
     );
-    return ok(rowToLead(result.rows[0]));
+    return ok({ lead: rowToLead(result.rows[0]), inserted: result.rows[0].inserted });
   } catch (e) {
     const error = e as Error & { code?: string };
     return err({ code: error.code ?? "DB_ERROR", message: error.message });

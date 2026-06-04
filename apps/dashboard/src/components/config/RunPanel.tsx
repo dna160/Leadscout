@@ -45,6 +45,7 @@ function ModeBadge({ mode }: { mode: ScrapeRun["mode"] }) {
 export function RunPanel({ runs: initialRuns }: RunPanelProps) {
   const [runs, setRuns] = useState<ScrapeRun[]>(initialRuns)
   const [loading, setLoading] = useState(false)
+  const [runError, setRunError] = useState<string | null>(null)
   const [maxPlaces, setMaxPlaces] = useState(20)
   const [isMockMode, setIsMockMode] = useState(true)
 
@@ -65,10 +66,11 @@ export function RunPanel({ runs: initialRuns }: RunPanelProps) {
 
   async function handleRun() {
     setLoading(true)
+    setRunError(null)
     try {
       const data = await apiPost<{
         runId: string
-        queryCount: number
+        cityCount: number
         placesFound: number
         newLeads: number
       }>("/api/scrape", { maxPlacesPerSearch: maxPlaces, mode: isMockMode ? "mock" : "live" })
@@ -84,6 +86,7 @@ export function RunPanel({ runs: initialRuns }: RunPanelProps) {
       await pollRuns(data.runId)
     } catch (err) {
       console.error(err)
+      setRunError(err instanceof Error ? err.message : "Scrape failed")
     } finally {
       setLoading(false)
     }
@@ -93,6 +96,12 @@ export function RunPanel({ runs: initialRuns }: RunPanelProps) {
 
   return (
     <div className="flex flex-col gap-4">
+      {runError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <strong>Scrape failed:</strong> {runError}
+        </div>
+      )}
+
       {/* Controls */}
       <div className="bg-white shadow-sm rounded-lg p-4 flex flex-wrap items-end gap-4">
         <div className="flex flex-col gap-1">
