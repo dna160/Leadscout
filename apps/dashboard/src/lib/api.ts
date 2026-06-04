@@ -1,5 +1,5 @@
 const ENGINE_URL =
-  process.env.NEXT_PUBLIC_ENGINE_URL ?? "http://localhost:4000";
+  process.env.NEXT_PUBLIC_ENGINE_URL || "http://localhost:4000";
 
 export async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${ENGINE_URL}${path}`, {

@@ -23,7 +23,7 @@ async function main() {
   app.use(helmet({ crossOriginResourcePolicy: false }));
   app.use(
     cors({
-      origin: env.DASHBOARD_URL ? [env.DASHBOARD_URL] : "*",
+      origin: env.DASHBOARD_URL ? [env.DASHBOARD_URL.replace(/\/$/, "")] : "*",
       methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
       allowedHeaders: ["Content-Type"],
     }),
