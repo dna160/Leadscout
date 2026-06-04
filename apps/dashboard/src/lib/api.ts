@@ -33,7 +33,7 @@ export async function apiPatch<T>(path: string, body?: unknown): Promise<T> {
 }
 
 export async function apiDelete(path: string): Promise<void> {
-  const res = await fetch(`${ENGINE_URL}${path}`, { method: "DELETE" });
+  const res = await fetch(path, { method: "DELETE" });
   if (!res.ok && res.status !== 204) {
     const text = await res.text().catch(() => res.statusText);
     throw new Error(`Engine API error ${res.status}: ${text}`);
