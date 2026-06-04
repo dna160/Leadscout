@@ -46,20 +46,27 @@ export function RunPanel({ runs: initialRuns }: RunPanelProps) {
   const [runs, setRuns] = useState<ScrapeRun[]>(initialRuns)
   const [loading, setLoading] = useState(false)
   const [runError, setRunError] = useState<string | null>(null)
+  const [pollWarning, setPollWarning] = useState<string | null>(null)
   const [maxPlaces, setMaxPlaces] = useState(20)
   const [isMockMode, setIsMockMode] = useState(true)
 
   async function pollRuns(runId: string): Promise<void> {
     const MAX_POLLS = 200 // 200 × 3s = ~10 minutes
+    let consecutiveFailures = 0
     for (let i = 0; i < MAX_POLLS; i++) {
       await new Promise<void>((resolve) => setTimeout(resolve, 3000))
       try {
         const updated = await apiGet<ScrapeRun[]>("/api/runs")
         setRuns(updated)
+        consecutiveFailures = 0
+        setPollWarning(null)
         const current = updated.find((r) => r.id === runId)
         if (current && current.status !== "running") return
-      } catch {
-        // keep polling
+      } catch (e) {
+        consecutiveFailures++
+        if (consecutiveFailures >= 3) {
+          setPollWarning(`Lost contact with engine after run started: ${e instanceof Error ? e.message : String(e)}`)
+        }
       }
     }
   }
@@ -67,6 +74,7 @@ export function RunPanel({ runs: initialRuns }: RunPanelProps) {
   async function handleRun() {
     setLoading(true)
     setRunError(null)
+    setPollWarning(null)
     try {
       const data = await apiPost<{
         runId: string
@@ -75,7 +83,6 @@ export function RunPanel({ runs: initialRuns }: RunPanelProps) {
         newLeads: number
       }>("/api/scrape", { maxPlacesPerSearch: maxPlaces, mode: isMockMode ? "mock" : "live" })
 
-      // Refresh run list immediately
       try {
         const refreshed = await apiGet<ScrapeRun[]>("/api/runs")
         setRuns(refreshed)
@@ -85,7 +92,6 @@ export function RunPanel({ runs: initialRuns }: RunPanelProps) {
 
       await pollRuns(data.runId)
     } catch (err) {
-      console.error(err)
       setRunError(err instanceof Error ? err.message : "Scrape failed")
     } finally {
       setLoading(false)
@@ -99,6 +105,11 @@ export function RunPanel({ runs: initialRuns }: RunPanelProps) {
       {runError && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           <strong>Scrape failed:</strong> {runError}
+        </div>
+      )}
+      {pollWarning && (
+        <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
+          <strong>Warning:</strong> {pollWarning}
         </div>
       )}
 
@@ -159,7 +170,7 @@ export function RunPanel({ runs: initialRuns }: RunPanelProps) {
                     {run.new_leads} new
                   </p>
                   {run.error && (
-                    <p className="text-xs text-red-500 mt-0.5 truncate" title={run.error}>
+                    <p className="text-xs text-red-500 mt-0.5 break-words whitespace-pre-wrap">
                       {run.error}
                     </p>
                   )}

@@ -163,6 +163,7 @@ export async function runScrape(
   let totalNewLeads = 0;
   let totalSkipped = 0;
   let totalErrors = 0;
+  const cityFailures: Array<{ city: string; code: string; message: string }> = [];
 
   try {
     for (const cityQuery of cityQueries) {
@@ -177,6 +178,7 @@ export async function runScrape(
           { city: cityQuery.cityName, error: apifyResult.error.message },
           "City scrape failed — continuing with next city",
         );
+        cityFailures.push({ city: cityQuery.cityName, code: apifyResult.error.code, message: apifyResult.error.message });
         continue;
       }
 
@@ -213,15 +215,26 @@ export async function runScrape(
       }
     }
 
+    const partialError = cityFailures.length > 0
+      ? `${cityFailures.length}/${cityQueries.length} cities failed — ${cityFailures.map((f) => `${f.city}: ${f.message} [${f.code}]`).join("; ")}`
+      : null;
+
+    const summaryNote = totalSkipped > 0 || totalErrors > 0
+      ? `skipped=${totalSkipped} upsert_errors=${totalErrors}`
+      : null;
+
+    const runError = [partialError, summaryNote].filter(Boolean).join(" | ") || null;
+
     await updateRun(run.id, {
       status: "completed",
       places_found: totalPlaces,
       new_leads: totalNewLeads,
+      error: runError,
       finished_at: new Date(),
     });
 
     logger.info(
-      { runId: run.id, placesFound: totalPlaces, newLeads: totalNewLeads, skipped: totalSkipped, errors: totalErrors },
+      { runId: run.id, placesFound: totalPlaces, newLeads: totalNewLeads, skipped: totalSkipped, upsertErrors: totalErrors, cityFailures: cityFailures.length },
       "Scrape run completed",
     );
 

@@ -8,7 +8,15 @@ export async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
-    throw new Error(`Engine API error ${res.status}: ${text}`);
+    let message = text;
+    try {
+      const json = JSON.parse(text) as { error?: string; code?: string; message?: string };
+      const body = json.error ?? json.message ?? text;
+      message = json.code ? `${body} [${json.code}]` : body;
+    } catch {
+      // not JSON — use raw text
+    }
+    throw new Error(`${res.status}: ${message}`);
   }
   return res.json() as Promise<T>;
 }
