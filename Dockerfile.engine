@@ -1,0 +1,26 @@
+# ── LeadScout Engine ──────────────────────────────────────────────
+# Railway: leave Root Directory empty, set Dockerfile Path = Dockerfile.engine
+# Build context = repo root
+# ──────────────────────────────────────────────────────────────────
+
+FROM node:20-alpine AS base
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+# ── Dependencies ──────────────────────────────────────────────────
+FROM base AS deps
+WORKDIR /app
+COPY apps/engine/package.json ./package.json
+RUN pnpm install
+
+# ── Runner ────────────────────────────────────────────────────────
+FROM base AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY apps/engine/package.json ./package.json
+COPY apps/engine/src ./src
+COPY apps/engine/tests/fixtures ./tests/fixtures
+
+EXPOSE 4000
+CMD ["pnpm", "start"]
