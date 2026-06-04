@@ -1,8 +1,5 @@
-const ENGINE_URL =
-  process.env.NEXT_PUBLIC_ENGINE_URL || "http://localhost:4000";
-
 export async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${ENGINE_URL}${path}`, {
+  const res = await fetch(path, {
     ...init,
     headers: { "Content-Type": "application/json", ...init?.headers },
   });
@@ -44,5 +41,5 @@ export async function apiDelete(path: string): Promise<void> {
 }
 
 export function engineUrl(path: string): string {
-  return `${ENGINE_URL}${path}`;
+  return path;
 }
