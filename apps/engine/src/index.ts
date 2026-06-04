@@ -9,6 +9,7 @@ import { runsRouter } from "./routes/runs";
 import { scrapeRouter } from "./routes/scrape";
 import { logger } from "./lib/logger";
 import { env } from "./lib/env";
+import { pool } from "./infra/db/client";
 
 const app = express();
 
@@ -31,6 +32,26 @@ app.use("/api/cities", citiesRouter);
 app.use("/api/runs", runsRouter);
 app.use("/api/scrape", scrapeRouter);
 
-app.listen(env.PORT, () => {
+const server = app.listen(env.PORT, () => {
   logger.info({ port: env.PORT }, "LeadScout engine running");
 });
+
+function shutdown(signal: string) {
+  logger.info({ signal }, "Shutdown signal received — closing gracefully");
+  server.close(() => {
+    logger.info("HTTP server closed");
+    pool.end().then(() => {
+      logger.info("DB pool closed");
+      process.exit(0);
+    }).catch(() => process.exit(0));
+  });
+
+  // Force-exit if graceful close takes > 10s
+  setTimeout(() => {
+    logger.warn("Graceful shutdown timed out — forcing exit");
+    process.exit(0);
+  }, 10_000).unref();
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
