@@ -1,14 +1,11 @@
 import fs from "fs";
 import path from "path";
+import { ApifyClient } from "apify-client";
 import { env } from "../../lib/env";
-import { fetchWithTimeout } from "../../lib/http";
 import { logger } from "../../lib/logger";
 import { ok, err, type Result } from "../../lib/result";
 
-const APIFY_BASE = "https://api.apify.com/v2";
-const ACTOR_ID = "compass/crawler-google-places";
-const POLL_INTERVAL_MS = 5_000;
-const MAX_POLL_MS = 8 * 60 * 1_000;
+const ACTOR_ID = "nwua9Gu5YrADL7ZDj";
 
 export interface ApifyPlace {
   placeId: string | null;
@@ -24,94 +21,82 @@ export interface ApifyPlace {
   totalScore: number | null;
   reviewsCount: number | null;
   url: string | null;
-  socialMedia?: { instagram?: string };
+  socialMedia?: {
+    instagram?: string;
+    facebook?: string;
+  };
+}
+
+export interface CityQuery {
+  keywords: string[];
+  locationQuery: string;
+  cityName: string;
 }
 
 export type ApifyError = { code: string; message: string };
 
-export async function runApifyScrape(
-  queries: string[],
+function loadFixtures(): ApifyPlace[] {
+  const fixturePath = path.join(__dirname, "../../../tests/fixtures/apify-sample.json");
+  return JSON.parse(fs.readFileSync(fixturePath, "utf-8")) as ApifyPlace[];
+}
+
+export async function runApifyScrapeForCity(
+  query: CityQuery,
   maxPlacesPerSearch = 20,
 ): Promise<Result<ApifyPlace[], ApifyError>> {
   if (env.APIFY_MOCK) {
-    logger.info({ queries, mode: "mock" }, "Apify mock run");
-    await new Promise((r) => setTimeout(r, 500));
-
-    const fixturePath = path.join(__dirname, "../../../tests/fixtures/apify-sample.json");
-    const apifySample = JSON.parse(fs.readFileSync(fixturePath, "utf-8")) as ApifyPlace[];
-
-    const filtered = apifySample.filter((p) =>
-      queries.some(
-        (q) =>
-          p.title.toLowerCase().includes(q.split(" ")[0].toLowerCase()) ||
-          (p.categoryName ?? "").toLowerCase().includes(q.split(" ")[0].toLowerCase()) ||
-          (p.city ?? "").toLowerCase().includes(q.split(" ").pop()?.toLowerCase() ?? ""),
+    logger.info({ city: query.cityName, keywords: query.keywords, mode: "mock" }, "Apify mock run");
+    await new Promise((r) => setTimeout(r, 300));
+    const sample = loadFixtures();
+    const filtered = sample.filter((p) =>
+      query.keywords.some(
+        (kw) =>
+          (p.categoryName ?? "").toLowerCase().includes(kw.split(" ")[0].toLowerCase()) ||
+          (p.city ?? "").toLowerCase().includes(query.cityName.toLowerCase()),
       ),
     );
-    return ok(filtered.length > 0 ? filtered : apifySample);
+    return ok(filtered.length > 0 ? filtered : sample.slice(0, 5));
   }
 
   if (!env.APIFY_API_KEY) {
     return err({ code: "NO_API_KEY", message: "APIFY_API_KEY is not set" });
   }
 
+  const client = new ApifyClient({ token: env.APIFY_API_KEY });
+
   try {
-    const runRes = await fetchWithTimeout(
-      `${APIFY_BASE}/acts/${encodeURIComponent(ACTOR_ID)}/runs?token=${env.APIFY_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          startUrls: queries.map((q) => ({
-            url: `https://www.google.com/maps/search/${encodeURIComponent(q)}`,
-          })),
-          language: "id",
-          maxCrawledPlacesPerSearch: maxPlacesPerSearch,
-          scrapeContacts: true,
-          skipClosedPlaces: true,
-        }),
-        timeoutMs: 30_000,
-      },
+    logger.info(
+      { city: query.cityName, keywords: query.keywords, maxPlacesPerSearch },
+      "Starting Apify actor run",
     );
 
-    if (!runRes.ok) {
-      const text = await runRes.text();
-      return err({ code: "APIFY_START_FAILED", message: text });
-    }
+    const run = await client.actor(ACTOR_ID).call({
+      searchStringsArray: query.keywords,
+      locationQuery: query.locationQuery,
+      maxCrawledPlacesPerSearch: maxPlacesPerSearch,
+      language: "id",
+      scrapeContacts: true,
+      skipClosedPlaces: true,
+      scrapeSocialMediaProfiles: {
+        instagrams: true,
+        facebooks: false,
+        youtubes: false,
+        tiktoks: false,
+        twitters: false,
+      },
+      maxReviews: 0,
+      maxImages: 0,
+      website: "allPlaces",
+      searchMatching: "all",
+    });
 
-    const runData = (await runRes.json()) as { data: { id: string; status: string } };
-    const runId = runData.data.id;
-    logger.info({ runId }, "Apify run started");
+    logger.info({ runId: run.id, status: run.status }, "Apify run finished");
 
-    const deadline = Date.now() + MAX_POLL_MS;
-    while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-
-      const statusRes = await fetchWithTimeout(
-        `${APIFY_BASE}/acts/${encodeURIComponent(ACTOR_ID)}/runs/${runId}?token=${env.APIFY_API_KEY}`,
-        { timeoutMs: 10_000 },
-      );
-      const statusData = (await statusRes.json()) as { data: { status: string } };
-      const status = statusData.data.status;
-      logger.info({ runId, status }, "Apify run status");
-
-      if (status === "SUCCEEDED") {
-        const itemsRes = await fetchWithTimeout(
-          `${APIFY_BASE}/acts/${encodeURIComponent(ACTOR_ID)}/runs/${runId}/dataset/items?token=${env.APIFY_API_KEY}&format=json`,
-          { timeoutMs: 30_000 },
-        );
-        const items = (await itemsRes.json()) as ApifyPlace[];
-        return ok(items);
-      }
-
-      if (status === "FAILED" || status === "ABORTED" || status === "TIMED-OUT") {
-        return err({ code: "APIFY_RUN_FAILED", message: `Run ${runId} ended with status ${status}` });
-      }
-    }
-
-    return err({ code: "APIFY_TIMEOUT", message: "Polling timed out after 8 minutes" });
+    const { items } = await client.dataset(run.defaultDatasetId).listItems();
+    return ok(items as unknown as ApifyPlace[]);
   } catch (e) {
     const error = e as Error;
-    return err({ code: "APIFY_NETWORK_ERROR", message: error.message });
+    logger.error({ city: query.cityName, error: error.message }, "Apify run failed");
+    return err({ code: "APIFY_ERROR", message: error.message });
   }
 }

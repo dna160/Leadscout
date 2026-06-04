@@ -1,5 +1,6 @@
 import crypto from "crypto";
-import { runApifyScrape, type ApifyPlace } from "../infra/apify/apify.client";
+import { env } from "../lib/env";
+import { runApifyScrapeForCity, type ApifyPlace, type CityQuery } from "../infra/apify/apify.client";
 import { upsertLead } from "../repositories/lead.repository";
 import { createRun, updateRun } from "../repositories/run.repository";
 import { listEnabledKeywordSets } from "../repositories/keywordSet.repository";
@@ -15,7 +16,7 @@ export interface ScrapeOptions {
 
 export interface ScrapeRunResult {
   runId: string;
-  queryCount: number;
+  cityCount: number;
   placesFound: number;
   newLeads: number;
 }
@@ -27,13 +28,13 @@ export type ScrapeError = {
 };
 
 export function buildQueryPlan(
-  keywords: Array<{ segment: Segment; keywords: string[]; label: string }>,
+  keywordSets: Array<{ segment: Segment; keywords: string[]; label: string }>,
   cities: Array<{ name: string; query: string }>,
 ): Array<{ query: string; segment: Segment; keyword: string; city: string }> {
   const seen = new Set<string>();
   const plan: Array<{ query: string; segment: Segment; keyword: string; city: string }> = [];
 
-  for (const kwSet of keywords) {
+  for (const kwSet of keywordSets) {
     for (const keyword of kwSet.keywords) {
       for (const city of cities) {
         const query = `${keyword} ${city.query}`;
@@ -46,6 +47,35 @@ export function buildQueryPlan(
   }
 
   return plan;
+}
+
+function buildCityQueries(
+  keywordSets: Array<{ segment: Segment; keywords: string[] }>,
+  cities: Array<{ name: string; query: string }>,
+): CityQuery[] {
+  const allKeywords = [...new Set(keywordSets.flatMap((ks) => ks.keywords))];
+  return cities.map((city) => ({
+    keywords: allKeywords,
+    locationQuery: `${city.query}, Indonesia`,
+    cityName: city.name,
+  }));
+}
+
+function segmentForKeyword(
+  keyword: string,
+  keywordSets: Array<{ segment: Segment; keywords: string[] }>,
+): Segment {
+  for (const ks of keywordSets) {
+    if (ks.keywords.some((k) => keyword.toLowerCase().includes(k.toLowerCase()))) {
+      return ks.segment;
+    }
+  }
+  return "cold";
+}
+
+function matchedKeyword(place: ApifyPlace, keywords: string[]): string {
+  const haystack = `${place.title} ${place.categoryName ?? ""}`.toLowerCase();
+  return keywords.find((kw) => haystack.includes(kw.toLowerCase())) ?? keywords[0] ?? "";
 }
 
 function normalisePlaceToLead(
@@ -63,7 +93,6 @@ function normalisePlaceToLead(
       .digest("hex")
       .slice(0, 20);
 
-  const phone = normalisePhone(place.phoneUnformatted ?? place.phone);
   const instagram =
     place.instagram ??
     place.socialMedia?.instagram
@@ -80,7 +109,7 @@ function normalisePlaceToLead(
     matched_keyword: keyword,
     city,
     address: place.address ?? null,
-    phone,
+    phone: normalisePhone(place.phoneUnformatted ?? place.phone),
     whatsapp: toWhatsApp(place.phoneUnformatted ?? place.phone),
     website: place.website ?? null,
     email: place.email ?? null,
@@ -96,14 +125,10 @@ export async function runScrape(
   options: ScrapeOptions = {},
 ): Promise<Result<ScrapeRunResult, ScrapeError>> {
   const kwResult = await listEnabledKeywordSets();
-  if (!kwResult.ok) {
-    return err({ code: "DB_ERROR", message: kwResult.error.message });
-  }
+  if (!kwResult.ok) return err({ code: "DB_ERROR", message: kwResult.error.message });
 
   const cityResult = await listEnabledCities();
-  if (!cityResult.ok) {
-    return err({ code: "DB_ERROR", message: cityResult.error.message });
-  }
+  if (!cityResult.ok) return err({ code: "DB_ERROR", message: cityResult.error.message });
 
   const kwSets = kwResult.value;
   const cities = cityResult.value;
@@ -111,72 +136,68 @@ export async function runScrape(
   if (!kwSets.length) return err({ code: "NO_KEYWORDS", message: "No enabled keyword sets" });
   if (!cities.length) return err({ code: "NO_CITIES", message: "No enabled cities" });
 
-  const plan = buildQueryPlan(kwSets, cities);
-  if (!plan.length) return err({ code: "EMPTY_PLAN", message: "Query plan is empty" });
+  const cityQueries = buildCityQueries(kwSets, cities);
+  const allKeywords = kwSets.flatMap((ks) => ks.keywords);
 
   const runResult = await createRun({
-    mode: process.env.APIFY_MOCK === "true" ? "mock" : "live",
-    queries: plan.map((p) => p.query),
+    mode: env.APIFY_MOCK ? "mock" : "live",
+    queries: cityQueries.map((q) => q.locationQuery),
     cities: cities.map((c) => c.name),
   });
 
-  if (!runResult.ok) {
-    return err({ code: "DB_ERROR", message: runResult.error.message });
-  }
+  if (!runResult.ok) return err({ code: "DB_ERROR", message: runResult.error.message });
 
   const run = runResult.value;
-  logger.info({ runId: run.id, queries: plan.length }, "Scrape run started");
+  logger.info({ runId: run.id, cities: cities.length }, "Scrape run started");
+
+  let totalPlaces = 0;
+  let totalNewLeads = 0;
 
   try {
-    const queries = plan.map((p) => p.query);
-    const apifyResult = await runApifyScrape(queries, options.maxPlacesPerSearch ?? 20);
-
-    if (!apifyResult.ok) {
-      await updateRun(run.id, {
-        status: "failed",
-        error: apifyResult.error.message,
-        finished_at: new Date(),
-      });
-      return err({ code: apifyResult.error.code, message: apifyResult.error.message, runId: run.id });
-    }
-
-    const places = apifyResult.value;
-    let newLeads = 0;
-
-    for (const place of places) {
-      const planEntry =
-        plan.find(
-          (p) =>
-            (place.city ?? "").toLowerCase().includes(p.city.toLowerCase()) ||
-            (place.categoryName ?? "").toLowerCase().includes(p.keyword.toLowerCase()),
-        ) ?? plan[0];
-
-      const leadData = normalisePlaceToLead(
-        place,
-        planEntry.segment,
-        planEntry.keyword,
-        planEntry.city,
-        run.id,
+    for (const cityQuery of cityQueries) {
+      const apifyResult = await runApifyScrapeForCity(
+        cityQuery,
+        options.maxPlacesPerSearch ?? 20,
       );
 
-      const upsertResult = await upsertLead(leadData);
-      if (upsertResult.ok) newLeads++;
+      if (!apifyResult.ok) {
+        logger.warn(
+          { city: cityQuery.cityName, error: apifyResult.error.message },
+          "City scrape failed — continuing with next city",
+        );
+        continue;
+      }
+
+      const places = apifyResult.value;
+      totalPlaces += places.length;
+
+      for (const place of places) {
+        const kw = matchedKeyword(place, allKeywords);
+        const segment = segmentForKeyword(kw, kwSets);
+        const leadData = normalisePlaceToLead(place, segment, kw, cityQuery.cityName, run.id);
+
+        const upsertResult = await upsertLead(leadData);
+        if (upsertResult.ok) totalNewLeads++;
+      }
     }
 
     await updateRun(run.id, {
       status: "completed",
-      places_found: places.length,
-      new_leads: newLeads,
+      places_found: totalPlaces,
+      new_leads: totalNewLeads,
       finished_at: new Date(),
     });
 
-    logger.info({ runId: run.id, placesFound: places.length, newLeads }, "Scrape run completed");
+    logger.info(
+      { runId: run.id, placesFound: totalPlaces, newLeads: totalNewLeads },
+      "Scrape run completed",
+    );
 
     return ok({
       runId: run.id,
-      queryCount: plan.length,
-      placesFound: places.length,
-      newLeads,
+      cityCount: cityQueries.length,
+      placesFound: totalPlaces,
+      newLeads: totalNewLeads,
     });
   } catch (e) {
     const error = e as Error;
