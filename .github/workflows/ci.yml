@@ -7,7 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  ci:
+  engine:
+    name: Engine
     runs-on: ubuntu-latest
 
     services:
@@ -28,7 +29,6 @@ jobs:
     env:
       DATABASE_URL: postgresql://leadscout:leadscout@localhost:5432/leadscout
       APIFY_MOCK: "true"
-      NEXT_PUBLIC_APP_URL: http://localhost:3000
 
     steps:
       - uses: actions/checkout@v4
@@ -42,17 +42,38 @@ jobs:
           node-version: "20"
           cache: "pnpm"
 
-      - name: Install dependencies
+      - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        run: pnpm lint
-
-      - name: Type check
-        run: pnpm typecheck
+      - name: Type check engine
+        run: pnpm --filter @leadscout/engine typecheck
 
       - name: Unit tests
-        run: pnpm test
+        run: pnpm --filter @leadscout/engine test
 
-      - name: Build
-        run: pnpm build
+  dashboard:
+    name: Dashboard
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check dashboard
+        run: pnpm --filter @leadscout/dashboard typecheck
+
+      - name: Build dashboard
+        run: pnpm --filter @leadscout/dashboard build
+        env:
+          NEXT_PUBLIC_ENGINE_URL: http://localhost:4000

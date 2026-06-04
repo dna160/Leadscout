@@ -1,4 +1,5 @@
 version: "3.8"
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -10,5 +11,41 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U leadscout"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  engine:
+    build:
+      context: ./apps/engine
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: postgresql://leadscout:leadscout@postgres:5432/leadscout
+      APIFY_MOCK: "true"
+      PORT: "4000"
+      DASHBOARD_URL: "http://localhost:3000"
+      NODE_ENV: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./apps/engine/src:/app/src
+
+  dashboard:
+    build:
+      context: ./apps/dashboard
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_ENGINE_URL: http://engine:4000
+      NODE_ENV: production
+    depends_on:
+      - engine
+
 volumes:
   pgdata:
