@@ -47,6 +47,21 @@ function loadFixtures(): ApifyPlace[] {
   return JSON.parse(fs.readFileSync(fixturePath, "utf-8")) as ApifyPlace[];
 }
 
+const STAR_MAP: Record<number, string> = {
+  2: "two",
+  2.5: "twoAndHalf",
+  3: "three",
+  3.5: "threeAndHalf",
+  4: "four",
+  4.5: "fourAndHalf",
+};
+
+function toApifyStarValue(stars: number): string {
+  // Round to nearest 0.5, clamp to [2, 4.5]; empty string = no minimum
+  const clamped = Math.min(4.5, Math.max(2, Math.round(stars * 2) / 2));
+  return STAR_MAP[clamped] ?? "";
+}
+
 export async function runApifyScrapeForCity(
   query: CityQuery,
   maxPlacesPerSearch = 20,
@@ -98,7 +113,7 @@ export async function runApifyScrapeForCity(
       maxImages: 0,
       website: "allPlaces",
       searchMatching: query.searchMatching ?? "all",
-      ...(query.placeMinimumStars != null ? { placeMinimumStars: String(query.placeMinimumStars) } : {}),
+      ...(query.placeMinimumStars != null ? { placeMinimumStars: toApifyStarValue(query.placeMinimumStars) } : {}),
     });
 
     logger.info({ runId: run.id, status: run.status }, "Apify run finished");
