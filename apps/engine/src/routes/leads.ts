@@ -1,9 +1,37 @@
 import { Router } from "express";
 import Papa from "papaparse";
-import { getLeads, getLeadStats, getAllLeadsForExport } from "../repositories/lead.repository";
+import {
+  getLeads,
+  getLeadStats,
+  getAllLeadsForExport,
+  getRejectedLeads,
+  restoreLead,
+} from "../repositories/lead.repository";
 import type { Segment } from "../domain/lead";
 
 export const leadsRouter = Router();
+
+leadsRouter.get("/rejected", async (req, res) => {
+  const { segment, city, search, limit = "500", offset = "0" } = req.query as Record<string, string>;
+
+  const result = await getRejectedLeads({
+    segment: segment as Segment | undefined,
+    city,
+    search,
+    limit: parseInt(limit),
+    offset: parseInt(offset),
+  });
+
+  if (!result.ok) return void res.status(500).json({ error: result.error.message });
+  res.json({ leads: result.value });
+});
+
+leadsRouter.post("/:id/restore", async (req, res) => {
+  const result = await restoreLead(req.params.id);
+  if (!result.ok) return void res.status(500).json({ error: result.error.message });
+  if (!result.value) return void res.status(404).json({ error: `Lead ${req.params.id} not found` });
+  res.json(result.value);
+});
 
 leadsRouter.get("/", async (req, res) => {
   const {
