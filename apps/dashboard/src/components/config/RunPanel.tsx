@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import type { ScrapeRun } from "@/domain/config"
+import { useEffect, useState } from "react"
+import type { ScrapeRun, ScrapeEstimate } from "@/domain/config"
 import { Badge } from "@/components/ui/badge"
 import { apiGet, apiPost } from "@/lib/api"
 
@@ -48,6 +48,24 @@ export function RunPanel({ runs: initialRuns }: RunPanelProps) {
   const [runError, setRunError] = useState<string | null>(null)
   const [maxPlaces, setMaxPlaces] = useState(20)
   const [isMockMode, setIsMockMode] = useState(true)
+  const [minStars, setMinStars] = useState(3.5)
+  const [estimate, setEstimate] = useState<ScrapeEstimate | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function fetchEstimate() {
+      try {
+        const data = await apiGet<ScrapeEstimate>(`/api/scrape/estimate?maxPlaces=${maxPlaces}`)
+        if (!cancelled) setEstimate(data)
+      } catch {
+        if (!cancelled) setEstimate(null)
+      }
+    }
+    void fetchEstimate()
+    return () => {
+      cancelled = true
+    }
+  }, [maxPlaces, isMockMode])
 
   async function pollRuns(runId: string): Promise<void> {
     const MAX_POLLS = 200 // 200 × 3s = ~10 minutes
@@ -73,7 +91,11 @@ export function RunPanel({ runs: initialRuns }: RunPanelProps) {
         cityCount: number
         placesFound: number
         newLeads: number
-      }>("/api/scrape", { maxPlacesPerSearch: maxPlaces, mode: isMockMode ? "mock" : "live" })
+      }>("/api/scrape", {
+        maxPlacesPerSearch: maxPlaces,
+        mode: isMockMode ? "mock" : "live",
+        placeMinimumStars: minStars,
+      })
 
       // Refresh run list immediately
       try {
@@ -117,6 +139,20 @@ export function RunPanel({ runs: initialRuns }: RunPanelProps) {
           />
         </div>
 
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-gray-600">Min stars</label>
+          <input
+            type="number"
+            min={0}
+            max={5}
+            step={0.5}
+            value={minStars}
+            onChange={(e) => setMinStars(Number(e.target.value))}
+            disabled={loading}
+            className="w-24 border border-gray-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+          />
+        </div>
+
         <label className="flex items-center gap-2 cursor-pointer pb-1.5">
           <input
             type="checkbox"
@@ -128,13 +164,21 @@ export function RunPanel({ runs: initialRuns }: RunPanelProps) {
           <span className="text-sm text-gray-700 font-medium">Mock mode</span>
         </label>
 
-        <button
-          onClick={() => void handleRun()}
-          disabled={loading}
-          className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium text-sm"
-        >
-          {loading ? "Running…" : "Run Scrape"}
-        </button>
+        <div className="flex flex-col items-start gap-1">
+          {estimate && (
+            <span className="text-xs text-gray-500 pb-1.5">
+              Estimated: ~{estimate.estimatedPlaces.toLocaleString()} places, ~$
+              {estimate.estimatedCostUsd.toFixed(2)}
+            </span>
+          )}
+          <button
+            onClick={() => void handleRun()}
+            disabled={loading}
+            className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium text-sm"
+          >
+            {loading ? "Running…" : "Run Scrape"}
+          </button>
+        </div>
       </div>
 
       {/* Run history */}
@@ -157,6 +201,9 @@ export function RunPanel({ runs: initialRuns }: RunPanelProps) {
                   <p className="text-xs text-gray-600">
                     {run.queries?.length ?? 0} queries · {run.places_found} found ·{" "}
                     {run.new_leads} new
+                    {run.actual_cost != null && (
+                      <> · ${Number(run.actual_cost).toFixed(2)}</>
+                    )}
                   </p>
                   {run.error && (
                     <p className="text-xs text-red-500 mt-0.5 truncate" title={run.error}>
