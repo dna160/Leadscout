@@ -98,7 +98,7 @@ export async function runApifyScrapeForCity(
       maxImages: 0,
       website: "allPlaces",
       searchMatching: query.searchMatching ?? "all",
-      ...(query.placeMinimumStars != null ? { placeMinimumStars: query.placeMinimumStars } : {}),
+      ...(query.placeMinimumStars != null ? { placeMinimumStars: String(query.placeMinimumStars) } : {}),
     });
 
     logger.info({ runId: run.id, status: run.status }, "Apify run finished");
