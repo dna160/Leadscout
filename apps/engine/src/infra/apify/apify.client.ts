@@ -31,6 +31,13 @@ export interface CityQuery {
   keywords: string[];
   locationQuery: string;
   cityName: string;
+  placeMinimumStars?: number;
+  searchMatching?: "all" | "any";
+}
+
+export interface ApifyScrapeResult {
+  items: ApifyPlace[];
+  costUsd: number;
 }
 
 export type ApifyError = { code: string; message: string };
@@ -44,7 +51,7 @@ export async function runApifyScrapeForCity(
   query: CityQuery,
   maxPlacesPerSearch = 20,
   useMock?: boolean,
-): Promise<Result<ApifyPlace[], ApifyError>> {
+): Promise<Result<ApifyScrapeResult, ApifyError>> {
   const shouldMock = useMock ?? env.APIFY_MOCK;
   if (shouldMock) {
     logger.info({ city: query.cityName, keywords: query.keywords, mode: "mock" }, "Apify mock run");
@@ -57,7 +64,8 @@ export async function runApifyScrapeForCity(
           (p.city ?? "").toLowerCase().includes(query.cityName.toLowerCase()),
       ),
     );
-    return ok(filtered.length > 0 ? filtered : sample.slice(0, 5));
+    const items = filtered.length > 0 ? filtered : sample.slice(0, 5);
+    return ok({ items, costUsd: 0 });
   }
 
   if (!env.APIFY_API_KEY) {
@@ -89,13 +97,20 @@ export async function runApifyScrapeForCity(
       maxReviews: 0,
       maxImages: 0,
       website: "allPlaces",
-      searchMatching: "all",
+      searchMatching: query.searchMatching ?? "all",
+      ...(query.placeMinimumStars != null ? { placeMinimumStars: query.placeMinimumStars } : {}),
     });
 
     logger.info({ runId: run.id, status: run.status }, "Apify run finished");
 
+    // Cost: read from the run's usage. Defaults to 0 if undefined.
+    const costUsd =
+      typeof (run as { usageTotalUsd?: number }).usageTotalUsd === "number"
+        ? (run as { usageTotalUsd?: number }).usageTotalUsd!
+        : 0;
+
     const { items } = await client.dataset(run.defaultDatasetId).listItems();
-    return ok(items as unknown as ApifyPlace[]);
+    return ok({ items: items as unknown as ApifyPlace[], costUsd });
   } catch (e) {
     const error = e as Error;
     logger.error({ city: query.cityName, error: error.message }, "Apify run failed");

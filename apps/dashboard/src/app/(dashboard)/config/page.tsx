@@ -7,6 +7,7 @@ import { apiGet, apiPost } from "@/lib/api"
 import { KwSetCard } from "@/components/config/KwSetCard"
 import { CityChips } from "@/components/config/CityChips"
 import { RunPanel } from "@/components/config/RunPanel"
+import { FilterRules } from "@/components/config/FilterRules"
 import { SEGMENT_LABELS } from "@/domain/segment"
 
 const SEGMENTS: Segment[] = ["hot", "warm", "cold", "drop"]
@@ -215,6 +216,12 @@ export default function ConfigPage() {
         ) : (
           <CityChips cities={cities} onToggle={handleCityToggle} />
         )}
+      </section>
+
+      {/* Filter Rules */}
+      <section>
+        <SectionHeading>Filter Rules</SectionHeading>
+        <FilterRules />
       </section>
 
       {/* Scrape */}
