@@ -13,6 +13,9 @@ export interface ScrapeRun {
   cities: string[] | null;
   places_found: number;
   new_leads: number;
+  estimated_cost: number | null;
+  actual_cost: number | null;
+  enrichment: boolean;
   error: string | null;
   started_at: Date;
   finished_at: Date | null;
@@ -21,13 +24,20 @@ export interface ScrapeRun {
 export type DbError = { code: string; message: string };
 
 export async function createRun(
-  data: Pick<ScrapeRun, "mode" | "queries" | "cities">,
+  data: Pick<ScrapeRun, "mode" | "queries" | "cities"> &
+    Partial<Pick<ScrapeRun, "estimated_cost" | "enrichment">>,
 ): Promise<Result<ScrapeRun, DbError>> {
   try {
     const result = await pool.query<ScrapeRun>(
-      `INSERT INTO scrape_runs (status, mode, queries, cities)
-       VALUES ('running', $1, $2, $3) RETURNING *`,
-      [data.mode, JSON.stringify(data.queries), JSON.stringify(data.cities)],
+      `INSERT INTO scrape_runs (status, mode, queries, cities, estimated_cost, enrichment)
+       VALUES ('running', $1, $2, $3, $4, $5) RETURNING *`,
+      [
+        data.mode,
+        JSON.stringify(data.queries),
+        JSON.stringify(data.cities),
+        data.estimated_cost ?? null,
+        data.enrichment ?? false,
+      ],
     );
     return ok(result.rows[0]);
   } catch (e) {
@@ -38,7 +48,12 @@ export async function createRun(
 
 export async function updateRun(
   id: string,
-  data: Partial<Pick<ScrapeRun, "status" | "apify_run_id" | "places_found" | "new_leads" | "error" | "finished_at">>,
+  data: Partial<
+    Pick<
+      ScrapeRun,
+      "status" | "apify_run_id" | "places_found" | "new_leads" | "actual_cost" | "error" | "finished_at"
+    >
+  >,
 ): Promise<Result<ScrapeRun | null, DbError>> {
   try {
     const sets: string[] = [];
@@ -49,6 +64,7 @@ export async function updateRun(
     if (data.apify_run_id !== undefined) { sets.push(`apify_run_id = $${idx++}`); params.push(data.apify_run_id); }
     if (data.places_found !== undefined) { sets.push(`places_found = $${idx++}`); params.push(data.places_found); }
     if (data.new_leads !== undefined) { sets.push(`new_leads = $${idx++}`); params.push(data.new_leads); }
+    if (data.actual_cost !== undefined) { sets.push(`actual_cost = $${idx++}`); params.push(data.actual_cost); }
     if (data.error !== undefined) { sets.push(`error = $${idx++}`); params.push(data.error); }
     if (data.finished_at !== undefined) { sets.push(`finished_at = $${idx++}`); params.push(data.finished_at); }
 
