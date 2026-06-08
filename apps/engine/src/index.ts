@@ -8,6 +8,7 @@ import { citiesRouter } from "./routes/cities";
 import { runsRouter } from "./routes/runs";
 import { scrapeRouter } from "./routes/scrape";
 import { filterRulesRouter } from "./routes/filter-rules";
+import { pipelineRouter } from "./routes/pipeline";
 import { logger } from "./lib/logger";
 import { env } from "./lib/env";
 import { pool } from "./infra/db/client";
@@ -40,6 +41,7 @@ async function main() {
   app.use("/api/runs", runsRouter);
   app.use("/api/scrape", scrapeRouter);
   app.use("/api/filter-rules", filterRulesRouter);
+  app.use("/api/pipeline", pipelineRouter);
 
   const server = app.listen(env.PORT, () => {
     logger.info({ port: env.PORT }, "LeadScout engine running");

@@ -2,7 +2,9 @@ export type LeadStatus = "scraped" | "enriched" | "classified" | "generated" | "
 
 export type Segment = "hot" | "warm" | "cold" | "drop";
 
-export type SegmentSource = "keyword" | "llm";
+export type SegmentSource = "llm" | "triage";
+
+export type EnrichmentStatus = "enriched" | "no_context" | "needs_manual";
 
 export type LeadLifecycleStatus = "active" | "rejected";
 
@@ -33,6 +35,15 @@ export interface Lead {
   first_seen_run: string | null;
   last_seen_run: string | null;
   source_run_id: string | null;
+  // Phase 2
+  segment_confidence: number | null;
+  segment_source: SegmentSource | null;
+  segment_evidence: string[];
+  cut_fit: string[];
+  contact_person: string | null;
+  contact_role: string | null;
+  enrichment_status: EnrichmentStatus | null;
+  updated_at: Date | null;
   created_at: Date;
 }
 
@@ -63,10 +74,30 @@ export interface LeadRow {
   first_seen_run: string | null;
   last_seen_run: string | null;
   source_run_id: string | null;
+  // Phase 2
+  segment_confidence: string | null;
+  segment_source: string | null;
+  segment_evidence: string[] | string | null;
+  cut_fit: string[] | string | null;
+  contact_person: string | null;
+  contact_role: string | null;
+  enrichment_status: string | null;
+  updated_at: Date | null;
   created_at: Date;
 }
 
 function parseMatchedKeywords(value: string[] | string | null | undefined): string[] {
+  if (value == null) return [];
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseJsonbArray(value: string[] | string | null | undefined): string[] {
   if (value == null) return [];
   if (Array.isArray(value)) return value;
   try {
@@ -84,6 +115,11 @@ export function rowToLead(row: LeadRow): Lead {
     matched_keywords: parseMatchedKeywords(row.matched_keywords),
     rating: row.rating != null ? parseFloat(row.rating) : null,
     status: (row.status as LeadLifecycleStatus) ?? "active",
+    segment_confidence: row.segment_confidence != null ? parseFloat(row.segment_confidence) : null,
+    segment_source: (row.segment_source as SegmentSource) ?? null,
+    segment_evidence: parseJsonbArray(row.segment_evidence),
+    cut_fit: parseJsonbArray(row.cut_fit),
+    enrichment_status: (row.enrichment_status as EnrichmentStatus) ?? null,
   };
 }
 

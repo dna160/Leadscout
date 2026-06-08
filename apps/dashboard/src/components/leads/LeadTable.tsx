@@ -10,10 +10,16 @@ interface LeadTableProps {
   loading?: boolean
 }
 
+const ENRICH_PILL: Record<string, { label: string; cls: string }> = {
+  enriched: { label: "enriched", cls: "bg-green-100 text-green-700" },
+  no_context: { label: "no ctx", cls: "bg-yellow-100 text-yellow-700" },
+  needs_manual: { label: "⚠ manual", cls: "bg-red-100 text-red-700" },
+}
+
 function SkeletonRow() {
   return (
     <tr className="animate-pulse">
-      {Array.from({ length: 6 }).map((_, i) => (
+      {Array.from({ length: 7 }).map((_, i) => (
         <td key={i} className="px-4 py-3">
           <div className="h-4 bg-gray-200 rounded w-full" />
         </td>
@@ -35,12 +41,15 @@ function ChipLink({ href, label, colorClass, external }: ChipLinkProps) {
       href={href}
       target={external ? "_blank" : undefined}
       rel={external ? "noopener noreferrer" : undefined}
+      onClick={e => e.stopPropagation()}
       className={`inline-flex items-center text-xs px-2 py-1 rounded font-medium ${colorClass}`}
     >
       {label}
     </a>
   )
 }
+
+const HEADERS = ["Name", "City", "Segment", "Intel", "Rating", "Contacts", "Website"]
 
 export function LeadTable({ leads, loading = false }: LeadTableProps) {
   if (loading) {
@@ -49,16 +58,14 @@ export function LeadTable({ leads, loading = false }: LeadTableProps) {
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              {["Name", "City", "Segment", "Rating", "Contacts", "Website"].map(
-                (h) => (
-                  <th
-                    key={h}
-                    className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                  >
-                    {h}
-                  </th>
-                )
-              )}
+              {HEADERS.map((h) => (
+                <th
+                  key={h}
+                  className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                >
+                  {h}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
@@ -92,21 +99,23 @@ export function LeadTable({ leads, loading = false }: LeadTableProps) {
       <table className="min-w-full divide-y divide-gray-200">
         <thead className="bg-gray-50">
           <tr>
-            {["Name", "City", "Segment", "Rating", "Contacts", "Website"].map(
-              (h) => (
-                <th
-                  key={h}
-                  className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap"
-                >
-                  {h}
-                </th>
-              )
-            )}
+            {HEADERS.map((h) => (
+              <th
+                key={h}
+                className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap"
+              >
+                {h}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200">
           {leads.map((lead) => (
-            <tr key={lead.id} className="hover:bg-gray-50 transition-colors">
+            <tr
+              key={lead.id}
+              className="hover:bg-gray-50 transition-colors cursor-pointer"
+              onClick={() => window.location.href = `/leads/${lead.id}`}
+            >
               {/* Name + category */}
               <td className="px-4 py-3 max-w-[200px]">
                 <p className="text-sm font-medium text-gray-900 truncate">
@@ -131,6 +140,22 @@ export function LeadTable({ leads, loading = false }: LeadTableProps) {
                 ) : (
                   <span className="text-gray-400 text-xs">—</span>
                 )}
+              </td>
+
+              {/* Intel: enrichment status + confidence */}
+              <td className="px-4 py-3 whitespace-nowrap">
+                <div className="flex flex-col gap-0.5">
+                  {lead.enrichment_status && ENRICH_PILL[lead.enrichment_status] && (
+                    <span className={`inline-block text-xs px-1.5 py-0.5 rounded-full font-medium ${ENRICH_PILL[lead.enrichment_status].cls}`}>
+                      {ENRICH_PILL[lead.enrichment_status].label}
+                    </span>
+                  )}
+                  {lead.segment_confidence != null && (
+                    <span className="text-xs text-gray-400">
+                      {Math.round(lead.segment_confidence * 100)}% conf
+                    </span>
+                  )}
+                </div>
               </td>
 
               {/* Rating */}
@@ -193,6 +218,7 @@ export function LeadTable({ leads, loading = false }: LeadTableProps) {
                     href={lead.website}
                     target="_blank"
                     rel="noopener noreferrer"
+                    onClick={e => e.stopPropagation()}
                     className="text-xs text-blue-600 hover:underline truncate block"
                     title={lead.website}
                   >

@@ -67,5 +67,52 @@ CREATE TABLE IF NOT EXISTS leads (
   first_seen_run UUID REFERENCES scrape_runs(id),
   last_seen_run UUID REFERENCES scrape_runs(id),
   source_run_id UUID REFERENCES scrape_runs(id),
+  -- Phase 2 intelligence columns (added via ALTER TABLE in migrate.ts for existing DBs)
+  segment_confidence NUMERIC(3,2),
+  segment_source TEXT,           -- 'llm' | 'triage'
+  segment_evidence JSONB DEFAULT '[]',
+  cut_fit JSONB DEFAULT '[]',
+  contact_person TEXT,
+  contact_role TEXT,
+  enrichment_status TEXT,        -- null | 'enriched' | 'no_context' | 'needs_manual'
+  updated_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS lead_context (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  lead_id UUID NOT NULL UNIQUE REFERENCES leads(id) ON DELETE CASCADE,
+  serper_results JSONB NOT NULL DEFAULT '[]',
+  signals JSONB NOT NULL DEFAULT '[]',
+  menu_links JSONB NOT NULL DEFAULT '[]',
+  raw_text TEXT,
+  sources JSONB NOT NULL DEFAULT '[]',
+  fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS lead_assets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  lead_id UUID NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  type TEXT NOT NULL,
+  content TEXT,
+  file_path TEXT,
+  model TEXT,
+  prompt_version TEXT,
+  status TEXT NOT NULL DEFAULT 'draft',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS pipeline_runs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  status TEXT NOT NULL,
+  leads_total INTEGER DEFAULT 0,
+  leads_enriched INTEGER DEFAULT 0,
+  leads_classified INTEGER DEFAULT 0,
+  leads_generated INTEGER DEFAULT 0,
+  leads_failed INTEGER DEFAULT 0,
+  estimated_cost NUMERIC(10,4),
+  actual_cost NUMERIC(10,4),
+  error TEXT,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  finished_at TIMESTAMPTZ
 );

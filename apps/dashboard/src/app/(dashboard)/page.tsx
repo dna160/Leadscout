@@ -20,6 +20,8 @@ export default function LeadsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filters, setFilters] = useState<LeadFilters>({})
+  const [pipelineRunning, setPipelineRunning] = useState(false)
+  const [pipelineResult, setPipelineResult] = useState<string | null>(null)
 
   const fetchLeads = useCallback(async () => {
     setLoading(true)
@@ -90,6 +92,28 @@ export default function LeadsPage() {
     })
   }, [leads, filters])
 
+  const runPipeline = useCallback(async () => {
+    setPipelineRunning(true)
+    setPipelineResult(null)
+    setError(null)
+    try {
+      const result = await apiPost<{
+        leadsTotal: number; leadsEnriched: number; leadsClassified: number;
+        leadsGenerated: number; leadsFailed: number; durationMs: number
+      }>("/api/pipeline/run")
+      setPipelineResult(
+        `Pipeline done: ${result.leadsGenerated}/${result.leadsTotal} generated, ` +
+        `${result.leadsClassified} classified, ${result.leadsFailed} failed ` +
+        `(${Math.round(result.durationMs / 1000)}s)`
+      )
+      void fetchLeads()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Pipeline failed")
+    } finally {
+      setPipelineRunning(false)
+    }
+  }, [fetchLeads])
+
   function refresh() {
     if (tab === "leads") void fetchLeads()
     else void fetchRejected()
@@ -106,14 +130,29 @@ export default function LeadsPage() {
     <div className="p-6">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold">Leads</h1>
-        <button
-          onClick={refresh}
-          disabled={loading}
-          className="text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50 font-medium"
-        >
-          {loading ? "Loading…" : "Refresh"}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => void runPipeline()}
+            disabled={pipelineRunning || loading}
+            className="text-sm bg-indigo-600 text-white px-3 py-1.5 rounded hover:bg-indigo-700 transition-colors disabled:opacity-50 font-medium"
+          >
+            {pipelineRunning ? "Running pipeline…" : "▶ Run Intelligence Pipeline"}
+          </button>
+          <button
+            onClick={refresh}
+            disabled={loading}
+            className="text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50 font-medium"
+          >
+            {loading ? "Loading…" : "Refresh"}
+          </button>
+        </div>
       </div>
+
+      {pipelineResult && (
+        <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+          ✓ {pipelineResult}
+        </div>
+      )}
 
       {/* Tab bar */}
       <div className="flex border-b border-gray-200 mb-6">

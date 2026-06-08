@@ -61,6 +61,15 @@ export async function runMigrations(connectionString: string): Promise<void> {
       ALTER TABLE leads ADD COLUMN IF NOT EXISTS matched_keywords JSONB NOT NULL DEFAULT '[]';
       ALTER TABLE leads ADD COLUMN IF NOT EXISTS first_seen_run UUID REFERENCES scrape_runs(id);
       ALTER TABLE leads ADD COLUMN IF NOT EXISTS last_seen_run UUID REFERENCES scrape_runs(id);
+
+      ALTER TABLE leads ADD COLUMN IF NOT EXISTS segment_confidence NUMERIC(3,2);
+      ALTER TABLE leads ADD COLUMN IF NOT EXISTS segment_source TEXT;
+      ALTER TABLE leads ADD COLUMN IF NOT EXISTS segment_evidence JSONB DEFAULT '[]';
+      ALTER TABLE leads ADD COLUMN IF NOT EXISTS cut_fit JSONB DEFAULT '[]';
+      ALTER TABLE leads ADD COLUMN IF NOT EXISTS contact_person TEXT;
+      ALTER TABLE leads ADD COLUMN IF NOT EXISTS contact_role TEXT;
+      ALTER TABLE leads ADD COLUMN IF NOT EXISTS enrichment_status TEXT;
+      ALTER TABLE leads ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
     `);
     console.log("[migrate] Column migrations applied.");
 

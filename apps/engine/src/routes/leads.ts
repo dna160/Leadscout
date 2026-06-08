@@ -6,7 +6,12 @@ import {
   getAllLeadsForExport,
   getRejectedLeads,
   restoreLead,
+  getLeadById,
+  updateLeadPhase2,
 } from "../repositories/lead.repository";
+import { getLeadContext } from "../repositories/context.repository";
+import { getLeadAssets, approveAsset, updateAssetContent } from "../repositories/asset.repository";
+import { generateLeadAssets } from "../services/generate.service";
 import type { Segment } from "../domain/lead";
 
 export const leadsRouter = Router();
@@ -57,6 +62,81 @@ leadsRouter.get("/", async (req, res) => {
   if (!statsR.ok) return void res.status(500).json({ error: statsR.error.message });
 
   res.json({ leads: leadsR.value, stats: statsR.value });
+});
+
+/** GET /api/leads/:id — full detail with context + assets */
+leadsRouter.get("/:id", async (req, res) => {
+  const { id } = req.params;
+  const [leadR, contextR, assetsR] = await Promise.all([
+    getLeadById(id),
+    getLeadContext(id),
+    getLeadAssets(id),
+  ]);
+  if (!leadR.ok) return void res.status(500).json({ error: leadR.error.message });
+  if (!leadR.value) return void res.status(404).json({ error: `Lead ${id} not found` });
+
+  res.json({
+    lead: leadR.value,
+    context: contextR.ok ? contextR.value : null,
+    assets: assetsR.ok ? assetsR.value : [],
+  });
+});
+
+/** PATCH /api/leads/:id — edit segment override or approve asset */
+leadsRouter.patch("/:id", async (req, res) => {
+  const { id } = req.params;
+  const { segment, segment_source, contact_person, contact_role, assetId, action, content } =
+    req.body as {
+      segment?: string;
+      segment_source?: string;
+      contact_person?: string;
+      contact_role?: string;
+      assetId?: string;
+      action?: "approve" | "edit";
+      content?: string;
+    };
+
+  // Handle asset approve / edit
+  if (assetId && action === "approve") {
+    const r = await approveAsset(assetId);
+    if (!r.ok) return void res.status(500).json({ error: r.error.message });
+    return void res.json(r.value);
+  }
+  if (assetId && action === "edit" && content) {
+    const r = await updateAssetContent(assetId, content);
+    if (!r.ok) return void res.status(500).json({ error: r.error.message });
+    return void res.json(r.value);
+  }
+
+  // Lead field update
+  const updates: Parameters<typeof updateLeadPhase2>[1] = {};
+  if (segment) { updates.segment = segment; updates.segment_source = segment_source ?? "triage"; }
+  if (contact_person !== undefined) updates.contact_person = contact_person;
+  if (contact_role !== undefined) updates.contact_role = contact_role;
+
+  if (Object.keys(updates).length === 0) {
+    return void res.status(400).json({ error: "No valid fields to update" });
+  }
+
+  const r = await updateLeadPhase2(id, updates);
+  if (!r.ok) return void res.status(500).json({ error: r.error.message });
+  res.json(r.value);
+});
+
+/** POST /api/leads/:id/generate — regenerate assets for this lead */
+leadsRouter.post("/:id/generate", async (req, res) => {
+  const { id } = req.params;
+  const leadR = await getLeadById(id);
+  if (!leadR.ok) return void res.status(500).json({ error: leadR.error.message });
+  if (!leadR.value) return void res.status(404).json({ error: `Lead ${id} not found` });
+
+  const lead = leadR.value;
+  const seg = (lead.segment ?? "warm") as "hot" | "warm" | "cold";
+  const safeSegment: "hot" | "warm" | "cold" = ["hot", "warm", "cold"].includes(seg) ? seg : "warm";
+
+  const result = await generateLeadAssets(lead, safeSegment);
+  if (!result.ok) return void res.status(500).json({ error: result.error.message });
+  res.json(result.value);
 });
 
 leadsRouter.get("/export", async (_req, res) => {

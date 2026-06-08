@@ -157,6 +157,15 @@ function normalisePlaceToLead(
     first_seen_run: runId,
     last_seen_run: runId,
     source_run_id: runId,
+    // Phase 2 fields — populated by the intelligence pipeline, null at scrape time
+    segment_confidence: null,
+    segment_source: null,
+    segment_evidence: [],
+    cut_fit: [],
+    contact_person: null,
+    contact_role: null,
+    enrichment_status: null,
+    updated_at: null,
   };
 }
 

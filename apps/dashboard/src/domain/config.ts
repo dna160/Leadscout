@@ -15,3 +15,18 @@ export interface FilterRule {
 }
 
 export interface ScrapeEstimate { estimatedPlaces: number; estimatedCostUsd: number }
+
+export interface PipelineRun {
+  id: string;
+  status: "running"|"done"|"failed";
+  leads_total: number;
+  leads_enriched: number;
+  leads_classified: number;
+  leads_generated: number;
+  leads_failed: number;
+  estimated_cost: number|null;
+  actual_cost: number|null;
+  error: string|null;
+  started_at: string;
+  finished_at: string|null;
+}

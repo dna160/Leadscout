@@ -242,6 +242,73 @@ export async function getAllLeadsForExport(): Promise<Result<Lead[], DbError>> {
   }
 }
 
+export async function getLeadById(id: string): Promise<Result<Lead | null, DbError>> {
+  try {
+    const result = await pool.query<LeadRow>(`SELECT * FROM leads WHERE id = $1`, [id]);
+    return ok(result.rows[0] ? rowToLead(result.rows[0]) : null);
+  } catch (e) {
+    const error = e as Error & { code?: string };
+    return err({ code: error.code ?? "DB_ERROR", message: error.message });
+  }
+}
+
+export async function getQualifiedLeads(): Promise<Result<Lead[], DbError>> {
+  try {
+    const result = await pool.query<LeadRow>(
+      `SELECT * FROM leads
+       WHERE status = 'active'
+         AND triage_verdict IN ('keep', 'maybe')
+         AND enrichment_status IS NULL
+       ORDER BY created_at DESC`,
+    );
+    return ok(result.rows.map(rowToLead));
+  } catch (e) {
+    const error = e as Error & { code?: string };
+    return err({ code: error.code ?? "DB_ERROR", message: error.message });
+  }
+}
+
+export async function updateLeadPhase2(
+  id: string,
+  data: Partial<{
+    segment: string;
+    segment_confidence: number;
+    segment_source: string;
+    segment_evidence: string[];
+    cut_fit: string[];
+    contact_person: string | null;
+    contact_role: string | null;
+    enrichment_status: string;
+    triage_verdict: string;
+  }>,
+): Promise<Result<Lead, DbError>> {
+  const sets: string[] = ["updated_at = NOW()"];
+  const params: unknown[] = [];
+  let idx = 1;
+
+  const jsonbFields = new Set(["segment_evidence", "cut_fit"]);
+
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined) {
+      sets.push(`${key} = $${idx++}`);
+      params.push(jsonbFields.has(key) ? JSON.stringify(value) : value);
+    }
+  }
+
+  params.push(id);
+  try {
+    const result = await pool.query<LeadRow>(
+      `UPDATE leads SET ${sets.join(", ")} WHERE id = $${idx} RETURNING *`,
+      params,
+    );
+    if (!result.rows[0]) return err({ code: "NOT_FOUND", message: `Lead ${id} not found` });
+    return ok(rowToLead(result.rows[0]));
+  } catch (e) {
+    const error = e as Error & { code?: string };
+    return err({ code: error.code ?? "DB_ERROR", message: error.message });
+  }
+}
+
 export async function getDistinctCities(): Promise<Result<string[], DbError>> {
   try {
     const result = await pool.query<{ city: string }>(
