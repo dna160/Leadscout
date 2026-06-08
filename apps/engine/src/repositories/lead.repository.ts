@@ -203,16 +203,17 @@ export async function getLeadStats(): Promise<Result<LeadStats, DbError>> {
       hot: string;
       warm: string;
       cold: string;
+      rejected: string;
       this_week: string;
     }>(
       `SELECT
-        COUNT(*)::text AS total,
-        COUNT(*) FILTER (WHERE segment = 'hot')::text AS hot,
-        COUNT(*) FILTER (WHERE segment = 'warm')::text AS warm,
-        COUNT(*) FILTER (WHERE segment = 'cold')::text AS cold,
-        COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')::text AS this_week
-       FROM leads
-       WHERE status = 'active'`,
+        COUNT(*) FILTER (WHERE status = 'active')::text AS total,
+        COUNT(*) FILTER (WHERE segment = 'hot' AND status = 'active')::text AS hot,
+        COUNT(*) FILTER (WHERE segment = 'warm' AND status = 'active')::text AS warm,
+        COUNT(*) FILTER (WHERE segment = 'cold' AND status = 'active')::text AS cold,
+        COUNT(*) FILTER (WHERE status = 'rejected')::text AS rejected,
+        COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days' AND status = 'active')::text AS this_week
+       FROM leads`,
     );
     const row = result.rows[0];
     return ok({
@@ -220,6 +221,7 @@ export async function getLeadStats(): Promise<Result<LeadStats, DbError>> {
       hot: parseInt(row.hot),
       warm: parseInt(row.warm),
       cold: parseInt(row.cold),
+      rejected: parseInt(row.rejected),
       thisWeek: parseInt(row.this_week),
     });
   } catch (e) {

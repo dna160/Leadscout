@@ -8,7 +8,7 @@ import { LeadFilters as LeadFiltersBar } from "@/components/leads/LeadFilters"
 import { LeadTable } from "@/components/leads/LeadTable"
 import { RejectedTable } from "@/components/leads/RejectedTable"
 
-const DEFAULT_STATS: LeadStats = { total: 0, hot: 0, warm: 0, cold: 0, thisWeek: 0 }
+const DEFAULT_STATS: LeadStats = { total: 0, hot: 0, warm: 0, cold: 0, rejected: 0, thisWeek: 0 }
 
 type Tab = "leads" | "rejected"
 
@@ -133,7 +133,7 @@ export default function LeadsPage() {
 
       {tab === "leads" ? (
         <>
-          <StatCards stats={stats} />
+          <StatCards stats={stats} onRejectedClick={() => setTab("rejected")} />
 
           <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
             <LeadFiltersBar filters={filters} cities={cities} onChange={setFilters} />

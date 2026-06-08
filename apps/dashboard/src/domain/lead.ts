@@ -14,4 +14,4 @@ export interface Lead {
   source_run_id: string|null; created_at: string;
 }
 export interface LeadFilters { segment?: Segment; city?: string; search?: string }
-export interface LeadStats { total: number; hot: number; warm: number; cold: number; thisWeek: number }
+export interface LeadStats { total: number; hot: number; warm: number; cold: number; rejected: number; thisWeek: number }

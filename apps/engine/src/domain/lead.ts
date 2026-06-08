@@ -101,5 +101,6 @@ export interface LeadStats {
   hot: number;
   warm: number;
   cold: number;
+  rejected: number;
   thisWeek: number;
 }
