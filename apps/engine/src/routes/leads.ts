@@ -66,31 +66,39 @@ leadsRouter.get("/", async (req, res) => {
   res.json({ leads: leadsR.value, stats: statsR.value });
 });
 
-/** GET /api/leads/:id/deck — stream the generated PDF deck for a lead */
+/** GET /api/leads/:id/deck — serve the generated PDF deck for a lead */
 leadsRouter.get("/:id/deck", async (req, res) => {
   const { id } = req.params;
 
-  // Find the deck asset for this lead
   const assetsResult = await getLeadAssets(id);
   if (!assetsResult.ok) return void res.status(500).json({ error: assetsResult.error.message });
 
-  const deck = assetsResult.value.find(a => a.type === "deck" && a.file_path);
-  if (!deck?.file_path) return void res.status(404).json({ error: "No deck PDF found for this lead" });
+  const deck = assetsResult.value.find(a => a.type === "deck");
+  if (!deck) return void res.status(404).json({ error: "No deck PDF found for this lead" });
 
-  const filePath = path.resolve(deck.file_path);
-
-  if (!fs.existsSync(filePath)) {
-    return void res.status(404).json({ error: `Deck file not found on disk: ${filePath}` });
+  // New format: PDF stored as base64 in content
+  if (deck.content) {
+    const pdfBuffer = Buffer.from(deck.content, "base64");
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${id}-deck.pdf"`);
+    res.setHeader("Content-Length", pdfBuffer.length);
+    return void res.end(pdfBuffer);
   }
 
-  const stat = fs.statSync(filePath);
-  const fileName = path.basename(filePath);
+  // Legacy: file_path on disk (kept for backwards compat)
+  if (deck.file_path) {
+    const filePath = path.resolve(deck.file_path);
+    if (!fs.existsSync(filePath)) {
+      return void res.status(404).json({ error: `Deck file not found on disk: ${filePath}` });
+    }
+    const stat = fs.statSync(filePath);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${path.basename(filePath)}"`);
+    res.setHeader("Content-Length", stat.size);
+    return void fs.createReadStream(filePath).pipe(res);
+  }
 
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `inline; filename="${fileName}"`);
-  res.setHeader("Content-Length", stat.size);
-
-  fs.createReadStream(filePath).pipe(res);
+  res.status(404).json({ error: "Deck has no content yet" });
 });
 
 /** GET /api/leads/:id — full detail with context + assets */

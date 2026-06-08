@@ -10,8 +10,6 @@
  *  - Still fails → use category-level fallback copy (no invented items), flag_for_review
  */
 
-import path from "path";
-import fs from "fs";
 import { logger } from "../lib/logger";
 import { ok, err, type Result } from "../lib/result";
 import { env } from "../lib/env";
@@ -187,8 +185,8 @@ function buildFallbackCopy(
 }
 
 // ── PDF deck (I6) ──────────────────────────────────────────────────────────
-
-const DECKS_DIR = path.join(process.cwd(), "decks");
+// PDF is generated into an in-memory Buffer, base64-encoded, and stored in
+// lead_assets.content — no filesystem required, survives container restarts.
 
 async function generateDeck(
   lead: Lead,
@@ -196,10 +194,6 @@ async function generateDeck(
   contextSnippets: string[],
 ): Promise<Result<string, GenerateError>> {
   try {
-    // Ensure decks directory exists
-    if (!fs.existsSync(DECKS_DIR)) fs.mkdirSync(DECKS_DIR, { recursive: true });
-
-    // Try to load pdfkit dynamically (optional dep — graceful if missing)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let PDFDocument: any = null;
     try {
@@ -209,8 +203,6 @@ async function generateDeck(
       return err({ message: "pdfkit not installed — deck generation skipped" });
     }
 
-    const filePath = path.join(DECKS_DIR, `${lead.id}-deck.pdf`);
-
     const offer = SEGMENT_OFFERS[segment];
     const segmentLabel: Record<string, string> = {
       hot: "HOT — A5 Wagyu Showcase Partner",
@@ -218,11 +210,15 @@ async function generateDeck(
       cold: "COLD — Premium Cut Supply Partner",
     };
 
-    await new Promise<void>((resolve, reject) => {
+    // Collect chunks into a Buffer instead of writing to disk
+    const base64 = await new Promise<string>((resolve, reject) => {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call
       const doc = new PDFDocument({ size: "A4", margin: 50 });
-      const stream = fs.createWriteStream(filePath);
-      doc.pipe(stream);
+      const chunks: Buffer[] = [];
+
+      doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+      doc.on("end", () => resolve(Buffer.concat(chunks).toString("base64")));
+      doc.on("error", reject);
 
       // Cover
       doc.fontSize(28).font("Helvetica-Bold").text("A5 Wagyu Indonesia", { align: "center" });
@@ -280,11 +276,9 @@ async function generateDeck(
       doc.fontSize(11).fillColor("#555").text("Tim A5 Wagyu Indonesia\nWhatsApp / Email: [contact details]");
 
       doc.end();
-      stream.on("finish", resolve);
-      stream.on("error", reject);
     });
 
-    return ok(filePath);
+    return ok(base64);
   } catch (e) {
     const error = e as Error;
     return err({ message: `Deck generation failed: ${error.message}` });
@@ -373,9 +367,11 @@ export async function generateLeadAssets(
   let deckId: string | undefined;
 
   if (deckResult.ok) {
+    // Store base64-encoded PDF in content; served by GET /api/leads/:id/deck
     const deckAsset = await replaceAsset(lead.id, {
       type: "deck",
-      file_path: deckResult.value,
+      content: deckResult.value,   // base64 string
+      file_path: null,
       model: "pdfkit",
       prompt_version: "deck.v1",
     });
