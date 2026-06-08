@@ -9,6 +9,11 @@ import { runsRouter } from "./routes/runs";
 import { scrapeRouter } from "./routes/scrape";
 import { filterRulesRouter } from "./routes/filter-rules";
 import { pipelineRouter } from "./routes/pipeline";
+import { sendRouter } from "./routes/send";
+import { inboxRouter } from "./routes/inbox";
+import { suppressionsRouter } from "./routes/suppressions";
+import { cronRouter } from "./routes/cron";
+import { startCron } from "./services/cron.service";
 import { logger } from "./lib/logger";
 import { env } from "./lib/env";
 import { pool } from "./infra/db/client";
@@ -42,6 +47,13 @@ async function main() {
   app.use("/api/scrape", scrapeRouter);
   app.use("/api/filter-rules", filterRulesRouter);
   app.use("/api/pipeline", pipelineRouter);
+  app.use("/api/send", sendRouter);
+  app.use("/api/inbox", inboxRouter);
+  app.use("/api/suppressions", suppressionsRouter);
+  app.use("/api/cron", cronRouter);
+
+  // ── Phase 3: Start CRON scheduler ────────────────────────────────────────
+  await startCron();
 
   const server = app.listen(env.PORT, () => {
     logger.info({ port: env.PORT }, "LeadScout engine running");

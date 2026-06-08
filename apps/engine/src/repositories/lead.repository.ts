@@ -309,6 +309,26 @@ export async function updateLeadPhase2(
   }
 }
 
+export async function updateLeadPipelineStage(
+  id: string,
+  stage: string,
+): Promise<Result<void, DbError>> {
+  try {
+    const now = new Date();
+    await pool.query(
+      `UPDATE leads SET pipeline_stage=$2, updated_at=$3,
+         last_contacted_at = CASE WHEN $2 IN ('sent','queued') THEN $3 ELSE last_contacted_at END,
+         replied_at        = CASE WHEN $2 = 'replied'          THEN $3 ELSE replied_at        END
+       WHERE id=$1`,
+      [id, stage, now],
+    );
+    return ok(undefined);
+  } catch (e) {
+    const error = e as Error & { code?: string };
+    return err({ code: error.code ?? "DB_ERROR", message: error.message });
+  }
+}
+
 export async function getDistinctCities(): Promise<Result<string[], DbError>> {
   try {
     const result = await pool.query<{ city: string }>(

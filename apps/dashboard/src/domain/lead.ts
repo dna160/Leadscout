@@ -23,6 +23,10 @@ export interface Lead {
   contact_role?: string|null;
   enrichment_status?: EnrichmentStatus|null;
   source_run_id: string|null; created_at: string;
+  // Phase 3
+  pipeline_stage?: string|null;
+  last_contacted_at?: string|null;
+  replied_at?: string|null;
 }
 
 export interface LeadContext {

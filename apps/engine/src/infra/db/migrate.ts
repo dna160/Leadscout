@@ -70,7 +70,77 @@ export async function runMigrations(connectionString: string): Promise<void> {
       ALTER TABLE leads ADD COLUMN IF NOT EXISTS contact_role TEXT;
       ALTER TABLE leads ADD COLUMN IF NOT EXISTS enrichment_status TEXT;
       ALTER TABLE leads ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+
+      -- Phase 3: CRM + outreach columns on leads
+      ALTER TABLE leads ADD COLUMN IF NOT EXISTS pipeline_stage TEXT DEFAULT 'new';
+      ALTER TABLE leads ADD COLUMN IF NOT EXISTS last_contacted_at TIMESTAMPTZ;
+      ALTER TABLE leads ADD COLUMN IF NOT EXISTS replied_at TIMESTAMPTZ;
     `);
+
+    // ── Phase 3 tables ──────────────────────────────────────────────────────
+    console.log("[migrate] Applying Phase 3 tables...");
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS sending_inboxes (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        domain TEXT NOT NULL,
+        address TEXT NOT NULL UNIQUE,
+        display_name TEXT,
+        daily_cap INTEGER NOT NULL DEFAULT 10,
+        warmup_stage INTEGER NOT NULL DEFAULT 0,
+        warmup_ramp TEXT NOT NULL DEFAULT '5,7,9,10',
+        sent_today INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'warming',
+        bounce_rate NUMERIC(5,4) DEFAULT 0,
+        complaint_rate NUMERIC(5,4) DEFAULT 0,
+        last_reset_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS outreach_messages (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        lead_id UUID NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+        channel TEXT NOT NULL DEFAULT 'email',
+        variant TEXT,
+        inbox_id UUID REFERENCES sending_inboxes(id),
+        subject TEXT,
+        body TEXT,
+        status TEXT NOT NULL DEFAULT 'queued',
+        sent_at TIMESTAMPTZ,
+        error TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS replies (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        lead_id UUID REFERENCES leads(id),
+        message_id TEXT,
+        in_reply_to TEXT,
+        from_addr TEXT,
+        subject TEXT,
+        body TEXT,
+        received_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS suppressions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        value TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL DEFAULT 'email',
+        reason TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS cron_runs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        job TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'running',
+        counts JSONB DEFAULT '{}',
+        started_at TIMESTAMPTZ DEFAULT NOW(),
+        finished_at TIMESTAMPTZ,
+        error TEXT
+      );
+    `);
+    console.log("[migrate] Phase 3 tables applied.");
     console.log("[migrate] Column migrations applied.");
 
     const kwCount = await client.query("SELECT COUNT(*) FROM keyword_sets");

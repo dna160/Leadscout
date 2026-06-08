@@ -16,6 +16,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Link href="/" className="text-sm text-gray-600 hover:text-gray-900">
             Leads
           </Link>
+          <Link href="/pipeline" className="text-sm text-gray-600 hover:text-gray-900">
+            Pipeline
+          </Link>
+          <Link href="/outreach" className="text-sm text-gray-600 hover:text-gray-900">
+            Outreach
+          </Link>
+          <Link href="/inbox" className="text-sm text-gray-600 hover:text-gray-900">
+            Inbox
+          </Link>
           <Link href="/config" className="text-sm text-gray-600 hover:text-gray-900">
             Config
           </Link>
