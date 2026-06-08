@@ -81,11 +81,15 @@ export async function renderDeck(
       await page.setViewport({ width: 794, height: 1123 }); // A4 at 96dpi
       await page.setContent(html, { waitUntil: "networkidle2", timeout: 30_000 });
 
-      const pdfBuffer: Buffer = await page.pdf({
+      const pdfResult = await page.pdf({
         format: "A4",
         printBackground: true,  // essential for dark backgrounds and photos
         margin: { top: 0, right: 0, bottom: 0, left: 0 },
       });
+
+      // puppeteer-core v21+ returns Uint8Array, not Buffer.
+      // Buffer.from() handles both correctly; never call .toString('base64') on Uint8Array directly.
+      const pdfBuffer = Buffer.isBuffer(pdfResult) ? pdfResult : Buffer.from(pdfResult);
 
       logger.info({ leadId: lead.id, bytes: pdfBuffer.length }, "PDF rendered via Puppeteer");
       return ok(pdfBuffer.toString("base64"));
