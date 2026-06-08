@@ -97,19 +97,56 @@ export default function LeadsPage() {
     setPipelineResult(null)
     setError(null)
     try {
-      const result = await apiPost<{
-        leadsTotal: number; leadsEnriched: number; leadsClassified: number;
-        leadsGenerated: number; leadsFailed: number; durationMs: number
+      // POST returns immediately with { runId, leadsTotal, status: 'running' }
+      const started = await apiPost<{
+        runId: string; leadsTotal: number; status: string;
+        leadsEnriched?: number; leadsClassified?: number; leadsGenerated?: number; leadsFailed?: number; durationMs?: number
       }>("/api/pipeline/run")
-      setPipelineResult(
-        `Pipeline done: ${result.leadsGenerated}/${result.leadsTotal} generated, ` +
-        `${result.leadsClassified} classified, ${result.leadsFailed} failed ` +
-        `(${Math.round(result.durationMs / 1000)}s)`
-      )
-      void fetchLeads()
+
+      if (started.status === "done" || started.runId === "no-op") {
+        // No qualified leads — already done
+        setPipelineResult(`No qualified leads to process`)
+        setPipelineRunning(false)
+        return
+      }
+
+      setPipelineResult(`Pipeline running — ${started.leadsTotal} leads queued…`)
+
+      // Poll for completion every 5 seconds
+      const poll = async () => {
+        try {
+          const run = await apiGet<{
+            status: string; leads_total: number; leads_enriched: number;
+            leads_classified: number; leads_generated: number; leads_failed: number;
+            finished_at: string | null
+          }>(`/api/pipeline/runs/${started.runId}`)
+
+          if (run.status === "done" || run.status === "failed") {
+            setPipelineResult(
+              run.status === "done"
+                ? `Pipeline done: ${run.leads_generated}/${run.leads_total} generated, ` +
+                  `${run.leads_classified} classified, ${run.leads_failed} failed`
+                : `Pipeline failed — check engine logs`
+            )
+            setPipelineRunning(false)
+            void fetchLeads()
+          } else {
+            // Still running — show progress and poll again
+            setPipelineResult(
+              `Pipeline running: enriched ${run.leads_enriched}, ` +
+              `classified ${run.leads_classified}, generated ${run.leads_generated} / ${run.leads_total}`
+            )
+            setTimeout(() => void poll(), 5000)
+          }
+        } catch {
+          // Poll error — keep trying
+          setTimeout(() => void poll(), 5000)
+        }
+      }
+
+      setTimeout(() => void poll(), 5000)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Pipeline failed")
-    } finally {
       setPipelineRunning(false)
     }
   }, [fetchLeads])

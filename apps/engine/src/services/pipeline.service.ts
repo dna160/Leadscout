@@ -4,12 +4,15 @@
  * Runs I2 → I3+I4 → I5+I6 over all qualified leads that haven't been processed.
  * One lead's failure never aborts the batch.
  * Persists progress in pipeline_runs table.
+ *
+ * Fire-and-forget pattern: the HTTP route creates a pipeline_runs record,
+ * returns the run ID immediately, then calls runPipeline(runId, leads) in background.
  */
 
 import { logger } from "../lib/logger";
-import { ok, err, type Result } from "../lib/result";
+import { ok, type Result } from "../lib/result";
 import { getQualifiedLeads, updateLeadPhase2 } from "../repositories/lead.repository";
-import { createPipelineRun, updatePipelineRun } from "../repositories/pipeline.repository";
+import { updatePipelineRun } from "../repositories/pipeline.repository";
 import { enrichLead } from "./enrich.service";
 import { classifyLead } from "./classify.service";
 import { generateLeadAssets } from "./generate.service";
@@ -42,10 +45,12 @@ async function processOneLead(lead: Lead): Promise<{
     const enrichResult = await enrichLead(lead);
     if (enrichResult.ok) {
       enriched = true;
-      // Reload lead with updated enrichment_status
-      const updatedEnrich = { ...lead, enrichment_status: enrichResult.value.enrichmentStatus as "enriched" | "no_context" };
+      const updatedEnrich = {
+        ...lead,
+        enrichment_status: enrichResult.value.enrichmentStatus as "enriched" | "no_context",
+      };
 
-      // I3+I4 — Classify (even if no_context, we still attempt with Apify facts)
+      // I3+I4 — Classify (even with no_context, attempt with Apify facts)
       try {
         const classifyResult = await classifyLead(updatedEnrich);
         if (classifyResult.ok && classifyResult.value.segment !== "drop") {
@@ -55,7 +60,6 @@ async function processOneLead(lead: Lead): Promise<{
           // I5+I6 — Generate (only for non-drop segments)
           if (seg === "hot" || seg === "warm" || seg === "cold") {
             try {
-              // Reload lead with updated segment info for generation
               const updatedLead = {
                 ...updatedEnrich,
                 segment: seg,
@@ -69,9 +73,6 @@ async function processOneLead(lead: Lead): Promise<{
             } catch (e) {
               logger.warn({ leadId: lead.id, stage: "generate", error: (e as Error).message }, "Stage failed");
             }
-          } else {
-            // Drop — already handled in classifyLead
-            classified = false;
           }
         }
       } catch (e) {
@@ -85,44 +86,25 @@ async function processOneLead(lead: Lead): Promise<{
   return { enriched, classified, generated };
 }
 
-export async function runPipeline(): Promise<Result<PipelineResult, PipelineError>> {
+/**
+ * Run the full intelligence pipeline.
+ *
+ * Called by the route with a pre-created runId and pre-fetched leads (fire-and-forget).
+ * The run record already exists — this function only updates it as work progresses.
+ */
+export async function runPipeline(
+  runId: string,
+  leads: Lead[],
+): Promise<Result<PipelineResult, PipelineError>> {
   const startedAt = Date.now();
 
-  // Fetch qualified leads
-  const leadsResult = await getQualifiedLeads();
-  if (!leadsResult.ok) {
-    return err({ message: `Failed to fetch qualified leads: ${leadsResult.error.message}` });
-  }
-
-  const leads = leadsResult.value;
-  if (leads.length === 0) {
-    logger.info("Pipeline: no qualified leads to process");
-    return ok({
-      runId: "no-op",
-      leadsTotal: 0,
-      leadsEnriched: 0,
-      leadsClassified: 0,
-      leadsGenerated: 0,
-      leadsFailed: 0,
-      durationMs: Date.now() - startedAt,
-    });
-  }
-
-  // Create pipeline_runs record
-  const runResult = await createPipelineRun(leads.length);
-  if (!runResult.ok) {
-    return err({ message: `Failed to create pipeline run: ${runResult.error.message}` });
-  }
-  const run = runResult.value;
-
-  logger.info({ runId: run.id, leadsTotal: leads.length }, "Pipeline started");
+  logger.info({ runId, leadsTotal: leads.length }, "Pipeline started");
 
   let leadsEnriched = 0;
   let leadsClassified = 0;
   let leadsGenerated = 0;
   let leadsFailed = 0;
 
-  // Process with bounded concurrency (3 leads at once — each has internal concurrency)
   const CONCURRENCY = 3;
   for (let i = 0; i < leads.length; i += CONCURRENCY) {
     const batch = leads.slice(i, i + CONCURRENCY);
@@ -141,8 +123,8 @@ export async function runPipeline(): Promise<Result<PipelineResult, PipelineErro
       }
     }
 
-    // Update progress every batch
-    await updatePipelineRun(run.id, {
+    // Update progress after every batch
+    await updatePipelineRun(runId, {
       leads_enriched: leadsEnriched,
       leads_classified: leadsClassified,
       leads_generated: leadsGenerated,
@@ -150,8 +132,8 @@ export async function runPipeline(): Promise<Result<PipelineResult, PipelineErro
     });
   }
 
-  // Finalize run
-  await updatePipelineRun(run.id, {
+  // Finalize
+  await updatePipelineRun(runId, {
     status: "done",
     leads_enriched: leadsEnriched,
     leads_classified: leadsClassified,
@@ -162,20 +144,16 @@ export async function runPipeline(): Promise<Result<PipelineResult, PipelineErro
 
   const durationMs = Date.now() - startedAt;
   logger.info(
-    { runId: run.id, leadsEnriched, leadsClassified, leadsGenerated, leadsFailed, durationMs },
+    { runId, leadsEnriched, leadsClassified, leadsGenerated, leadsFailed, durationMs },
     "Pipeline complete",
   );
 
-  return ok({
-    runId: run.id,
-    leadsTotal: leads.length,
-    leadsEnriched,
-    leadsClassified,
-    leadsGenerated,
-    leadsFailed,
-    durationMs,
-  });
+  return ok({ runId, leadsTotal: leads.length, leadsEnriched, leadsClassified, leadsGenerated, leadsFailed, durationMs });
 }
+
+/** Re-export for convenience (used by route handler) */
+export { getQualifiedLeads } from "../repositories/lead.repository";
+export { createPipelineRun } from "../repositories/pipeline.repository";
 
 /** Get runs list (for dashboard display) */
 export { getPipelineRuns, getPipelineRun } from "../repositories/pipeline.repository";
