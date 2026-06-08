@@ -96,7 +96,7 @@ function AssetCard({
 
       {asset.type === "deck" ? (
         <div className="flex items-center gap-3">
-          {asset.file_path ? (
+          {asset.file_path || asset.content ? (
             <>
               <a
                 href={`/api/leads/${asset.lead_id}/deck`}
@@ -113,7 +113,6 @@ function AssetCard({
               >
                 Download
               </a>
-              <span className="text-xs text-gray-400">{asset.file_path.split(/[\\/]/).pop()}</span>
             </>
           ) : (
             <p className="text-sm text-gray-400">No deck file generated yet</p>
