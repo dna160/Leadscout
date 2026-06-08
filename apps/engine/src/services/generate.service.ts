@@ -22,6 +22,7 @@ import {
 import { SEGMENT_OFFERS, ALL_CUT_TOKENS } from "../domain/outreach";
 import { getLeadContext } from "../repositories/context.repository";
 import { replaceAsset } from "../repositories/asset.repository";
+import { renderDeck } from "../infra/deck/deck.renderer";
 
 export type GenerateError = { message: string };
 
@@ -185,104 +186,17 @@ function buildFallbackCopy(
 }
 
 // ── PDF deck (I6) ──────────────────────────────────────────────────────────
-// PDF is generated into an in-memory Buffer, base64-encoded, and stored in
-// lead_assets.content — no filesystem required, survives container restarts.
+// Delegates to the IBUKI-branded renderer in infra/deck/deck.renderer.ts.
+// PDF is returned as a base64 string for storage in lead_assets.content.
 
 async function generateDeck(
   lead: Lead,
   segment: "hot" | "warm" | "cold",
   contextSnippets: string[],
 ): Promise<Result<string, GenerateError>> {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let PDFDocument: any = null;
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      PDFDocument = require("pdfkit");
-    } catch {
-      return err({ message: "pdfkit not installed — deck generation skipped" });
-    }
-
-    const offer = SEGMENT_OFFERS[segment];
-    const segmentLabel: Record<string, string> = {
-      hot: "HOT — A5 Wagyu Showcase Partner",
-      warm: "WARM — Premium Upgrade Opportunity",
-      cold: "COLD — Premium Cut Supply Partner",
-    };
-
-    // Collect chunks into a Buffer instead of writing to disk
-    const base64 = await new Promise<string>((resolve, reject) => {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-      const doc = new PDFDocument({ size: "A4", margin: 50 });
-      const chunks: Buffer[] = [];
-
-      doc.on("data", (chunk: Buffer) => chunks.push(chunk));
-      doc.on("end", () => resolve(Buffer.concat(chunks).toString("base64")));
-      doc.on("error", reject);
-
-      // Cover
-      doc.fontSize(28).font("Helvetica-Bold").text("A5 Wagyu Indonesia", { align: "center" });
-      doc.moveDown(0.5);
-      doc.fontSize(18).font("Helvetica").text(lead.name, { align: "center" });
-      doc.moveDown(0.3);
-      doc.fontSize(12).fillColor("#666").text(lead.city ?? "Indonesia", { align: "center" });
-      doc.moveDown(2);
-      doc.fontSize(14).fillColor("#000").text(segmentLabel[segment] ?? segment, { align: "center" });
-      doc.addPage();
-
-      // Why A5
-      doc.fontSize(20).font("Helvetica-Bold").text("Mengapa A5 Wagyu?");
-      doc.moveDown(0.5);
-      doc.fontSize(11).font("Helvetica").text(
-        "A5 adalah grade tertinggi dalam sistem penilaian Wagyu Jepang — marbling sempurna (BMS 8-12), " +
-        "tekstur yang meleleh di mulut, dan rasa umami yang tak tertandingi. " +
-        "Produk ini menjadi daya tarik utama di restoran premium dan hotel berbintang.",
-        { lineGap: 4 },
-      );
-      doc.moveDown(1);
-
-      // Cut fit
-      doc.fontSize(16).font("Helvetica-Bold").text("Potongan yang Kami Rekomendasikan");
-      doc.moveDown(0.5);
-      const cutLines = offer.sampleCuts.map(c => `• ${c.charAt(0).toUpperCase() + c.slice(1)}`);
-      doc.fontSize(11).font("Helvetica").text(cutLines.join("\n"), { lineGap: 6 });
-      doc.moveDown(1);
-
-      // Context excerpt (if available)
-      if (contextSnippets.length > 0) {
-        doc.fontSize(13).font("Helvetica-Bold").text("Yang Kami Ketahui Tentang " + lead.name);
-        doc.moveDown(0.4);
-        doc.fontSize(10).font("Helvetica").fillColor("#444").text(
-          contextSnippets.slice(0, 3).join(" ").slice(0, 400),
-          { lineGap: 3 },
-        );
-        doc.moveDown(1);
-      }
-      doc.fillColor("#000");
-      doc.addPage();
-
-      // Offer & CTA
-      doc.fontSize(20).font("Helvetica-Bold").text("Penawaran untuk " + lead.name);
-      doc.moveDown(0.5);
-      doc.fontSize(12).font("Helvetica").text(offer.whatsappHook, { lineGap: 4 });
-      doc.moveDown(1);
-      doc.fontSize(14).font("Helvetica-Bold").text("Langkah Selanjutnya:");
-      doc.moveDown(0.3);
-      doc.fontSize(12).font("Helvetica").text(offer.cta, { lineGap: 4 });
-      doc.moveDown(2);
-
-      // Contact
-      doc.fontSize(12).text("Hubungi kami:");
-      doc.fontSize(11).fillColor("#555").text("Tim A5 Wagyu Indonesia\nWhatsApp / Email: [contact details]");
-
-      doc.end();
-    });
-
-    return ok(base64);
-  } catch (e) {
-    const error = e as Error;
-    return err({ message: `Deck generation failed: ${error.message}` });
-  }
+  const result = await renderDeck(lead, segment, contextSnippets);
+  if (!result.ok) return err({ message: result.error.message });
+  return ok(result.value);
 }
 
 // ── Main generate function ─────────────────────────────────────────────────
