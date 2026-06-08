@@ -287,7 +287,7 @@ export async function generateLeadAssets(
       content: deckResult.value,   // base64 string
       file_path: null,
       model: "pdfkit",
-      prompt_version: "deck.v1",
+      prompt_version: "deck.v2",
     });
     if (deckAsset.ok) deckId = deckAsset.value.id;
   } else {

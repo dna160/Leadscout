@@ -4,22 +4,29 @@
 # ──────────────────────────────────────────────────────────────────
 
 FROM node:22-alpine AS base
+# Install Chromium for Puppeteer PDF generation
+RUN apk add --no-cache chromium
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 
 # ── Dependencies ──────────────────────────────────────────────────
 FROM base AS deps
 WORKDIR /app
 COPY apps/engine/package.json ./package.json
+# Skip bundled Chromium download — we use the Alpine system Chromium above
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 RUN pnpm install
 
 # ── Runner ────────────────────────────────────────────────────────
 FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY apps/engine/package.json ./package.json
 COPY apps/engine/src ./src
+COPY apps/engine/assets ./assets
 COPY apps/engine/tests/fixtures ./tests/fixtures
 
 EXPOSE 4000
