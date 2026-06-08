@@ -95,9 +95,30 @@ function AssetCard({
       </div>
 
       {asset.type === "deck" ? (
-        <p className="text-sm text-gray-500">
-          {asset.file_path ? `PDF generated: ${asset.file_path.split(/[\\/]/).pop()}` : "No deck file"}
-        </p>
+        <div className="flex items-center gap-3">
+          {asset.file_path ? (
+            <>
+              <a
+                href={`/api/leads/${asset.lead_id}/deck`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 bg-purple-600 text-white text-sm px-3 py-1.5 rounded hover:bg-purple-700 transition-colors font-medium"
+              >
+                📄 View PDF
+              </a>
+              <a
+                href={`/api/leads/${asset.lead_id}/deck`}
+                download
+                className="text-sm text-purple-600 hover:text-purple-800 underline"
+              >
+                Download
+              </a>
+              <span className="text-xs text-gray-400">{asset.file_path.split(/[\\/]/).pop()}</span>
+            </>
+          ) : (
+            <p className="text-sm text-gray-400">No deck file generated yet</p>
+          )}
+        </div>
       ) : editing ? (
         <textarea
           value={draft}

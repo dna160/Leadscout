@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import { Router } from "express";
 import Papa from "papaparse";
 import {
@@ -62,6 +64,33 @@ leadsRouter.get("/", async (req, res) => {
   if (!statsR.ok) return void res.status(500).json({ error: statsR.error.message });
 
   res.json({ leads: leadsR.value, stats: statsR.value });
+});
+
+/** GET /api/leads/:id/deck — stream the generated PDF deck for a lead */
+leadsRouter.get("/:id/deck", async (req, res) => {
+  const { id } = req.params;
+
+  // Find the deck asset for this lead
+  const assetsResult = await getLeadAssets(id);
+  if (!assetsResult.ok) return void res.status(500).json({ error: assetsResult.error.message });
+
+  const deck = assetsResult.value.find(a => a.type === "deck" && a.file_path);
+  if (!deck?.file_path) return void res.status(404).json({ error: "No deck PDF found for this lead" });
+
+  const filePath = path.resolve(deck.file_path);
+
+  if (!fs.existsSync(filePath)) {
+    return void res.status(404).json({ error: `Deck file not found on disk: ${filePath}` });
+  }
+
+  const stat = fs.statSync(filePath);
+  const fileName = path.basename(filePath);
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="${fileName}"`);
+  res.setHeader("Content-Length", stat.size);
+
+  fs.createReadStream(filePath).pipe(res);
 });
 
 /** GET /api/leads/:id — full detail with context + assets */

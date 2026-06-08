@@ -24,10 +24,30 @@ async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
     );
   }
 
+  const contentType = res.headers.get("Content-Type") ?? "application/json";
+
+  // Pass binary responses (PDF, etc.) through as-is without corrupting them
+  if (!contentType.includes("application/json") && !contentType.includes("text/")) {
+    const buffer = await res.arrayBuffer();
+    return new NextResponse(buffer, {
+      status: res.status,
+      headers: {
+        "Content-Type": contentType,
+        ...(res.headers.get("Content-Disposition")
+          ? { "Content-Disposition": res.headers.get("Content-Disposition")! }
+          : {}),
+        ...(res.headers.get("Content-Length")
+          ? { "Content-Length": res.headers.get("Content-Length")! }
+          : {}),
+      },
+    });
+  }
+
+  // JSON / text responses
   const text = await res.text();
   return new NextResponse(text, {
     status: res.status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": contentType },
   });
 }
 
