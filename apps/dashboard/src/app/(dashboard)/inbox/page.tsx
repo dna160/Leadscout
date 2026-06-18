@@ -107,7 +107,7 @@ export default function InboxPage() {
       {replies.length === 0 ? (
         <div className="text-center py-16 text-gray-400">
           <p className="text-4xl mb-3">📬</p>
-          <p>No replies yet. Press "Poll Now" to check the inbox.</p>
+          <p>No replies yet. Press &ldquo;Poll Now&rdquo; to check the inbox.</p>
         </div>
       ) : (
         <div className="space-y-2">
